@@ -27,7 +27,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
     const [residenceChoice,setResidenceChoice]=useState(seed.residenceType||'House'),[handoffChoice,setHandoffChoice]=useState(seed.handoff||'hand');
     const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null);
     const [activeBuilder,setActiveBuilder]=useState(null);
-    const ledger=useRef({pendingOrder:initialConfig.pendingOrder||null,lastOrder:initialConfig.lastOrder||null});
+    const ledger=useRef({payment:initialConfig.payment||{},pendingOrder:initialConfig.pendingOrder||null,lastOrder:initialConfig.lastOrder||null});
     const draftCache=useRef(new Map()),draftSnapshot=useRef(initialConfig.draftOrder||null);
     const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
     const latest=useRef(seed),persist=useRef(onPersist),generation=useRef(0),controller=useRef(null),mounted=useRef(true);
@@ -130,7 +130,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
     };
     const saveLedger=next=>{persist.current(configWithValues({...initialConfig,...next,draftOrder:draftSnapshot.current},latest.current));ledger.current=next;};
     const pendingChanged=pendingOrder=>saveLedger({...ledger.current,pendingOrder});
-    const orderPlaced=lastOrder=>{const old=draftSnapshot.current;draftSnapshot.current=null;try{saveLedger({lastOrder,pendingOrder:null});}catch(error){draftSnapshot.current=old;throw error;}};
+    const orderPlaced=lastOrder=>{const old=draftSnapshot.current;draftSnapshot.current=null;try{saveLedger({...ledger.current,lastOrder,pendingOrder:null});}catch(error){draftSnapshot.current=old;throw error;}};
     useInput((input,key)=>{
         if(page==='builder')return;
         if(key.leftArrow){back();return;}
@@ -231,7 +231,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
             h(Text,null,`${info.IsOpen===true?'Open':info.IsOpen===false?'Closed':'Hours'} · ${info.ServiceHoursDescription?.[method]||info.HoursDescription||''}`),
             info.EstimatedWaitMinutes?h(Text,null,`Estimated wait: ${info.EstimatedWaitMinutes}`):null);
     }else if(page==='builder'&&activeBuilder){
-        heading=null;body=h(OrderBuilder,{...activeBuilder,storeInfo:selectedStore.info,pendingOrder:ledger.current.pendingOrder,onPending:pendingChanged,onPlaced:orderPlaced,height:bodyHeight,onBack:()=>setPage('profile'),onChange:draftChanged,initialNotice:activeBuilder.notice});
+        heading=null;body=h(OrderBuilder,{...activeBuilder,savedPayment:ledger.current.payment,onSavePayment:payment=>saveLedger({...ledger.current,payment}),storeInfo:selectedStore.info,pendingOrder:ledger.current.pendingOrder,onPending:pendingChanged,onPlaced:orderPlaced,height:bodyHeight,onBack:()=>setPage('profile'),onChange:draftChanged,initialNotice:activeBuilder.notice});
     }
     const primary=busy||page==='builder'?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':'Enter  Continue →';
     return h(Box,{flexDirection:'column',height,width:size.columns,backgroundColor:palette.background,alignItems:'center'},

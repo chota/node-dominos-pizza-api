@@ -3,9 +3,10 @@ import {Box,useInput,useApp} from 'ink';
 import {Text,palette} from './style.js';
 import {trackOrders} from './tracking.js';
 const h=React.createElement,money=amount=>`$${Number(amount).toFixed(2)}`;
-export function CheckoutPanel({checkout,height=16,onBack,trackingOnly=false,tracking=trackOrders}){
-    const [view,setView]=useState(trackingOnly?'tracking':'payment'),[cursor,setCursor]=useState(0),[fields,setFields]=useState({number:'',expiration:'',securityCode:'',postalCode:''}),[confirmation,setConfirmation]=useState('');
+export function CheckoutPanel({checkout,height=16,onBack,trackingOnly=false,tracking=trackOrders,savedPayment={},onSavePayment=()=>{}}){
+    const [view,setView]=useState(trackingOnly?'tracking':'payment'),[cursor,setCursor]=useState(0),[fields,setFields]=useState({number:savedPayment.number||'',expiration:savedPayment.expiration||'',securityCode:'',postalCode:savedPayment.postalCode||''}),[confirmation,setConfirmation]=useState('');
     const [status,setStatus]=useState(''),[busy,setBusy]=useState(false),[receipt,setReceipt]=useState(null),[orders,setOrders]=useState([]);
+    const cachedPayment=useRef(savedPayment);
     const mounted=useRef(true);useEffect(()=>()=>{mounted.current=false;},[]);const {exit}=useApp();
     const keys=['number','expiration','securityCode','postalCode'],labels={number:'Card number',expiration:'Expiry (MM/YY)',securityCode:'Security code',postalCode:'Billing postal code'};
     const methods=checkout.paymentMethods();
@@ -33,7 +34,7 @@ export function CheckoutPanel({checkout,height=16,onBack,trackingOnly=false,trac
             if(key.return||key.tab){
                 if(key.shift){setCursor(Math.max(0,cursor-1));return;}
                 if(cursor<3){setCursor(cursor+1);return;}
-                try{checkout.setPayment('CreditCard',fields);setView('confirm');setStatus('');}catch(error){setStatus(error.message);}return;
+                try{const payment=checkout.setPayment('CreditCard',fields);const reusable={number:payment.number,expiration:payment.expiration,postalCode:payment.postalCode};onSavePayment(reusable);cachedPayment.current=reusable;setView('confirm');setStatus('');}catch(error){setStatus(error.message);}return;
             }
             if(key.upArrow){setCursor(Math.max(0,cursor-1));return;}if(key.downArrow){setCursor(Math.min(3,cursor+1));return;}
             const name=keys[cursor];
@@ -49,7 +50,7 @@ export function CheckoutPanel({checkout,height=16,onBack,trackingOnly=false,trac
         if(view==='payment'){
             if(key.upArrow)setCursor(Math.max(0,cursor-1));if(key.downArrow)setCursor(Math.min(methods.length-1,cursor+1));
             if(key.return&&methods[cursor]){
-                if(methods[cursor].type==='CreditCard'){setView('card');setCursor(0);}
+                if(methods[cursor].type==='CreditCard'){const saved=cachedPayment.current;setFields({number:saved.number||'',expiration:saved.expiration||'',securityCode:'',postalCode:saved.postalCode||''});setView('card');setCursor(saved.number&&saved.expiration?2:0);}
                 else try{checkout.setPayment('Cash');setView('confirm');setStatus('');}catch(error){setStatus(error.message);}
             }
         }else if((view==='placed'||view==='tracking')&&(key.return||input==='r')){setView('tracking');void refresh();}

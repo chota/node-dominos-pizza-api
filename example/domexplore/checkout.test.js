@@ -69,3 +69,10 @@ test('checkout screen requires PLACE and shows confirmation without JSON or diag
   screen.stdin.write('PLACE');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/Order placed/);assert.equal(calls.filter(call=>call==='place').length,1);
  }finally{screen.unmount();screen.cleanup();}
 });
+test('saved card prefills masked fields, focuses security code and persists only reusable payment fields',async()=>{
+ const {checkout}=setup({now:()=>Date.UTC(2026,9,26)});await checkout.quote();const saved=[];
+ const screen=render(React.createElement(CheckoutPanel,{checkout,height:16,onBack:()=>{},savedPayment:{number:'4111111111111111',expiration:'1230',postalCode:'12345'},onSavePayment:value=>saved.push(value)}));
+ try{
+  await tick();screen.stdin.write('\x1b[B');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/› Security code:/);assert.doesNotMatch(screen.lastFrame(),/4111111111111111/);screen.stdin.write('123');await tick();screen.stdin.write('\r');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/Type PLACE/);assert.deepEqual(saved,[{number:'4111111111111111',expiration:'1230',postalCode:'12345'}]);
+ }finally{screen.unmount();screen.cleanup();}
+});

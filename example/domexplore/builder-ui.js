@@ -6,7 +6,7 @@ import {LocalOrderBuilder} from './order-builder.js';
 import {Checkout} from './checkout.js';
 import {CheckoutPanel} from './checkout-ui.js';
 const h=React.createElement;
-export function OrderBuilder({order,catalog,height=16,onBack,onStage,onChange,initialNotice='',storeInfo={},pendingOrder=null,onPending,onPlaced}){
+export function OrderBuilder({order,catalog,height=16,onBack,onStage,onChange,initialNotice='',storeInfo={},pendingOrder=null,onPending,onPlaced,savedPayment={},onSavePayment}){
     const model=useRef(null);if(!model.current||model.current.order!==order||model.current.catalog!==catalog)model.current=new LocalOrderBuilder(order,catalog);
     const builder=model.current;
     const checkoutRef=useRef(null);if(!checkoutRef.current||checkoutRef.current.builder!==builder)checkoutRef.current=new Checkout(builder,{storeInfo,pendingOrder,onPending,onPlaced});
@@ -100,7 +100,7 @@ export function OrderBuilder({order,catalog,height=16,onBack,onStage,onChange,in
     });
     const capacity=Math.max(1,height-5),start=Math.floor(index/capacity)*capacity;
     let body,title;
-    if(view==='checkout')return h(CheckoutPanel,{checkout,height,onBack:()=>{checkout.order.payments=[];transition('review');},trackingOnly});
+    if(view==='checkout')return h(CheckoutPanel,{checkout,height,savedPayment,onSavePayment,onBack:()=>{checkout.order.payments=[];transition('review');},trackingOnly});
     if(view==='quantity'){title='Quantity';body=h(Text,null,`${quantity}▏`);}
     else{
         title=popup?.title||(view==='catalog'?'Add Item':view==='configure'?`${foodEmoji(variant.productCode,{Name:variant.name,ProductType:variant.product.productType})} ${group.name}`:'Order');

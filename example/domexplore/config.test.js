@@ -39,3 +39,10 @@ test('local draft items survive cache round-trip separately from placed-order hi
   const loaded=loadConfig(path);assert.equal(loaded.lastOrder.orderID,'placed-before');assert.equal(loaded.draftOrder.products[0].code,'TEST');assert.equal(loaded.draftOrder.products[0].qty,2);assert.deepEqual(loaded.draftOrder.products[0].options,{C:{'1/1':'1.5'}});assert.doesNotMatch(readFileSync(path,'utf8'),/never-save/);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('explicit payment cache survives edits and saves but never retains security code or tokens',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'domexplore-config-')),path=join(dir,'config');
+ try{
+  saveConfig({payment:{number:'4111111111111111',expiration:'1230',postalCode:'12345',securityCode:'987',accessToken:'private-token'}},path);
+  const config=loadConfig(path);assert.deepEqual(config.payment,{number:'4111111111111111',expiration:'1230',postalCode:'12345'});saveConfig(configWithValues(config,{firstName:'Alex'}),path);assert.deepEqual(loadConfig(path).payment,config.payment);assert.doesNotMatch(readFileSync(path,'utf8'),/987|securityCode|private-token/);assert.equal(statSync(path).mode&0o777,0o600);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

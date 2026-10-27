@@ -51,7 +51,7 @@ Order review keeps the same `Order` instance and retains returned identity field
 
 Checkout validates and prices the same Order using the original package. Back returns to the item loop; edits discard the previous payment and require validation and pricing again. Quotes expire locally after five minutes.
 
-Payment choices follow the store's accepted methods. Card number and security code are masked, held only in memory, and never saved. The final screen shows the current total, store and service; **type PLACE and press Enter** to submit. No submission happens while adding items or reviewing a quote.
+Payment choices follow the store's accepted methods. Card number and security code are masked, kept out of API logs. Card number, expiry and billing postal code are cached in the owner-only home dotfile and prefilled next time; the security code stays in memory and must be re-entered. The final screen shows the current total, store and service; **type PLACE and press Enter** to submit. No submission happens while adding items or reviewing a quote.
 
 Before submission, a credential-free pending marker must save successfully. An interrupted or unclear result blocks another attempt, including after restart. Accepted orders save a receipt and offer in-app tracking. An unresolved pending order requires checking with the store; the app deliberately provides no automatic retry or reset that could duplicate it.
 
@@ -64,7 +64,7 @@ Arrows navigate fields; Return/Tab accepts and advances. The first typed charact
 
 `~/.domexplore.conf` is JSON, created atomically with owner-only read/write permissions (`0600`). Contact/address edits are saved shortly after typing and flushed on normal exit. On launch, values are restored and First Name is focused. A malformed config is reported rather than overwritten.
 
-The schema has `version`, `customer`, `address`, `draftOrder`, `pendingOrder`, and `lastOrder`. Local draft items are cached separately from placed-order history and restored only after explicitly choosing their matching store and service method; saved options are checked against the current menu. Address data includes the handoff choice, three checkbox booleans, extra text, and the composed delivery-instructions string. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials, passwords, and tokens are excluded. Order history never automatically submits an order or selects a store. A pending marker contains only submission identity, store, service and time; it persists until a definitive result is saved.
+The schema has `version`, `customer`, `address`, `payment`, `draftOrder`, `pendingOrder`, and `lastOrder`. Local draft items are cached separately from placed-order history and restored only after explicitly choosing their matching store and service method; saved options are checked against the current menu. Address data includes the handoff choice, three checkbox booleans, extra text, and the composed delivery-instructions string. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials are excluded from order summaries; passwords, security codes and tokens are never cached. The separate payment section holds only card number, expiry and billing postal code. Order history never automatically submits an order or selects a store. A pending marker contains only submission identity, store, service and time; it persists until a definitive result is saved.
 
 ## Native location helper
 
@@ -89,3 +89,18 @@ npm test
 Offline checks use simulated checkout responses, including verification failures, interrupted submissions, duplicate protection, card validation and safe tracking links. They also cover both service branches, store identity, handoff controls, menu grouping, per-code option amounts and limits, size/crust reconciliation, actual Item/Order serialization, identity preservation, draft caching/restoration, and keyboard add/edit/remove flows. Live read-only discovery and Store construction were also verified using the repository’s public example address; no user location was transmitted in that check.
 
 The live 2801 menu was also indexed for the item builder: 70 product families and 228 variants, all with locally valid default configurations. Only profile/menu GET requests were made; local checks do not certify server order validation.
+
+## API logs
+
+Every launch clears previous **`domexplore-api-*.txt` log files matching the logger's numbered naming format** in the current working directory. Other files and symbolic links are left alone. Logs remain after quitting; copy any run you want to retain before launching again.
+
+Each send and receive has its own owner-only (`0600`) text file, numbered in event order, for example:
+
+```text
+domexplore-api-000001-send-order-dominos-com-power-place-order.txt
+domexplore-api-000002-receive-order-dominos-com-power-place-order.txt
+```
+
+Files contain readable JSON with timestamps, endpoint URL, method/request headers and body, or HTTP status/response headers and body. Receive files reference their send's sequence number, including for concurrent requests. Network failures also produce a receive file. Store discovery, profile, menu, validate, price, place and tracking use this logger; Apple native location/geocoding does not use the Node HTTP transport.
+
+Payment numbers, security codes, expiration dates, passwords, tokens and authorization/cookie headers are redacted. Verification status codes and corrective-action structures remain available. Unstructured non-JSON bodies are marked as omitted rather than risk retaining secrets. Contact and delivery-address data remain in these local diagnostics. Log write failures are reported once and do not discard an API result or retry an order.

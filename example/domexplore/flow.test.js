@@ -108,7 +108,11 @@ test('back navigation discards a late Store result',async()=>{
  let resolve;
  const {screen}=harness({services:{Store:class{constructor(id){return new Promise(r=>resolve=()=>r({info:{StoreID:id},menu:{dominosAPIResponse:{}}}));}}}});
  try{
-  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\x1b[D');
+  await tick();await locate(screen);
+  for(let attempt=0;attempt<20&&!screen.lastFrame().includes('1111');attempt++)await tick();
+  assert.match(screen.lastFrame(),/1111/);await key(screen,'\r');
+  for(let attempt=0;attempt<20&&!resolve;attempt++)await tick();
+  assert.equal(typeof resolve,'function');await key(screen,'\x1b[D');
   resolve();await tick();assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Your store/);
  }finally{cleanup(screen);}
 });
