@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node domexplore.js",
-    "test": "node --test explorer.test.js"
+    "test": "node --test *.test.js"
   },
   "dependencies": {
     "ink": "^7.0.5",
