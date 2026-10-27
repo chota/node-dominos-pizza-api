@@ -31,7 +31,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     const [step,setStep]=useState(0),[part,setPart]=useState('who'),[values,setValues]=useState(initialValues),[field,setField]=useState(0);
     const [editing,setEditing]=useState(true),[replace,setReplace]=useState(true),[details,setDetails]=useState(false);
     const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false),[locating,setLocating]=useState(false);
-    const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(0),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
+    const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(-1),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
     const locationRequest=useRef(null),didLocate=useRef(false),revisions=useRef({}),latest=useRef(initialValues),persist=useRef(onPersist);
     latest.current=values;persist.current=onPersist;
     const {exit}=useApp(),{stdout}=useStdout();
@@ -114,7 +114,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         if(input==='q'){exit();return;}if(busy)return;
         if(input==='b'){previous();return;}
         if((input==='n'||(key.return&&step===0))&&step===0){
-            if(part==='who')where();else{setStep(1);setStatus('');}return;
+            if(part==='who')where();else{setStoreIndex(-1);setStep(1);setStatus('');}return;
         }
         if(input==='n'&&step===1&&!storeID){setStatus('Search and select a store before continuing.');return;}
         if(input==='n'){setStep(old=>Math.min(9,old+1));setStatus('');return;}
@@ -124,11 +124,11 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             if(input==='d'&&part==='where'){setDetails(old=>!old);if(details&&field>7)setField(7);}
         }
         if(step===1){
-            if(key.upArrow)setStoreIndex(old=>Math.max(0,old-1));
+            if(key.upArrow)setStoreIndex(old=>Math.max(-1,old-1));
             if(key.downArrow)setStoreIndex(old=>Math.min(eligible.length-1,old+1));
-            if(input==='s'){
+            if(input==='s'||(key.return&&storeIndex===-1)){
                 if(!customer.address.street||!customer.address.postalCode){setStatus('Enter your street and postal code first.');return;}
-                request(async()=>{const result=await new services.NearbyStores(customer.address);setStores(result);setStoreIndex(0);setStatus('Choose a store with Enter.');});
+                request(async()=>{const result=await new services.NearbyStores(customer.address);setStores(result);setStoreIndex(result.stores.some(s=>s.IsOnlineCapable&&s.IsDeliveryStore&&s.IsOpen&&s.ServiceIsOpen?.Delivery)?0:-1);setStatus('Choose a store with Enter.');});
             }
             if(key.return&&eligible[storeIndex]){setStoreID(String(eligible[storeIndex].StoreID));setMenu(null);setStep(2);setStatus('');}
         }
@@ -159,14 +159,14 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             ...visible.map(r=>r.heading?h(Text,{key:'where',bold:true,color:palette.red},r.heading):row(r.indexes)),
             h(Box,{marginTop:1},h(Text,null,editing?'Enter next · ↑↓ move · Ctrl+U clear · Esc navigation':part==='where'?`Enter continue · ↑↓ edit · d ${details?'fewer':'address'} details`:'Enter continue · ↑↓ edit')));
     }else if(step===1){
-        const capacity=Math.max(1,contentHeight-5),start=Math.floor(storeIndex/capacity)*capacity;
+        const capacity=Math.max(1,contentHeight-5),start=Math.floor(Math.max(0,storeIndex)/capacity)*capacity;
         body=h(Box,{flexDirection:'column'},
             h(Text,null,storeID?`Selected store ${storeID}`:'No store selected'),
             h(Text,null,'Delivery coverage is confirmed by an address search.'),
             h(Box,{marginTop:1,flexDirection:'column'},
                 ...eligible.slice(start,start+capacity).map((store,i)=>h(Text,{key:store.StoreID,color:start+i===storeIndex?palette.red:palette.text,wrap:'truncate'},`${start+i===storeIndex?'›':' '} 🏪 ${store.StoreID} · ${store.AddressDescription.replace(/\n/g,', ')}`)),
                 stores&&!eligible.length?h(Text,null,'No nearby stores are open for online delivery.'):null),
-            h(Box,{marginTop:1},h(Text,{color:palette.red},'s  Find delivery stores →')));
+            h(Box,{marginTop:1},h(Text,{color:palette.red,bold:storeIndex===-1},`${storeIndex===-1?'›':' '} Find delivery stores →${storeIndex===-1?'  Enter':'  s'}`)));
     }else if(step===2){
         body=menu?h(Explorer,{menu,storeID,embedded:true,height:contentHeight,onBack:()=>setStep(1),onNext:()=>setStep(3)}):h(Box,{flexDirection:'column'},h(Text,null,storeID?`Browse the live menu from store ${storeID}.`:'Select a store before loading its menu.'),storeID?h(Box,{marginTop:1},h(Text,{color:palette.red},'l  Load menu →')):null);
     }else{

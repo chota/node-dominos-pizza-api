@@ -84,7 +84,8 @@ test('customer-first journey discovers a store, loads its menu, then continues t
   for(let i=0;i<5;i++){screen.stdin.write('\r');await tick();}
   assert.match(screen.lastFrame(),/2 of 10 · Store/);
   screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/2 of 10/);
-  screen.stdin.write('s');await tick();screen.stdin.write('\r');await tick();
+  assert.match(screen.lastFrame(),/› Find delivery stores →  Enter/);
+  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/› 🏪 1234/);screen.stdin.write('\r');await tick();
   screen.stdin.write('l');await tick();await tick();assert.match(screen.lastFrame(),/3 of 10 · Menu/);assert.equal(loadedStore,'1234');
   screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Products/);
   screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/4 of 10 · Items/);
