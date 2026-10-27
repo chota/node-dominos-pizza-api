@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import React from 'react';
+import {setAPIObserver} from '../../utils/api-transport.js';
+import {createAPILog} from './api-log.js';
 
 if(process.argv.length>2){
     console.error('Usage: domexplore (choose a store inside the app)');
@@ -16,6 +18,7 @@ if(process.argv.length>2){
     const stop=()=>app?.unmount();
     try{
         process.once('SIGTERM',stop);process.once('SIGINT',stop);
+        setAPIObserver(createAPILog());
         const initialConfig=loadConfig();
         let initialNotice='';
         try{saveConfig(initialConfig);}catch(error){initialNotice=`Could not save settings: ${error.message}`;}

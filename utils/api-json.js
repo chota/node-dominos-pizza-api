@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import {apiFetch as fetch} from './api-transport.js';
 import urls from './urls.js';
 
 const post=async function(url, payload) {
