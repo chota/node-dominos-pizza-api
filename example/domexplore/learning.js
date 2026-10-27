@@ -1,7 +1,10 @@
 import React,{useState,useRef,useEffect} from 'react';
 import {Box,useInput,useApp,useStdout} from 'ink';
-import {Customer,Address,NearbyStores,Store} from '../../index.js';
+import {Customer,Address,NearbyStores,Store,Order} from '../../index.js';
 import {Explorer} from './ui.js';
+import {prepareCatalog} from './catalog.js';
+import {OrderBuilder} from './builder-ui.js';
+import {LocalOrderBuilder} from './order-builder.js';
 import {Text,palette} from './style.js';
 import {locateAddress} from './location.js';
 import {configWithValues} from './config.js';
@@ -25,14 +28,16 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
     const [attempted,setAttempted]=useState(false),[locationResolved,setLocationResolved]=useState(false),[method,setMethod]=useState(null),[methodChoice,setMethodChoice]=useState('Carryout');
     const [residenceChoice,setResidenceChoice]=useState(seed.residenceType||'House'),[handoffChoice,setHandoffChoice]=useState(seed.handoff||'hand');
     const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null),[inspect,setInspect]=useState(false);
+    const [activeBuilder,setActiveBuilder]=useState(null);
+    const draftCache=useRef(new Map()),draftSnapshot=useRef(initialConfig.draftOrder||null);
     const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
     const latest=useRef(seed),persist=useRef(onPersist),generation=useRef(0),controller=useRef(null),mounted=useRef(true);
     latest.current=values;persist.current=onPersist;
     const {exit}=useApp(),{stdout}=useStdout();
     const [size,setSize]=useState({columns:stdout.columns||80,rows:stdout.rows||30});
     useEffect(()=>{const resize=()=>setSize({columns:stdout.columns||80,rows:stdout.rows||30});stdout.on?.('resize',resize);return()=>stdout.off?.('resize',resize);},[stdout]);
-    useEffect(()=>{const timer=setTimeout(()=>{try{persist.current(configWithValues(initialConfig,latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);return()=>clearTimeout(timer);},[values,initialConfig]);
-    useEffect(()=>()=>{mounted.current=false;generation.current++;controller.current?.abort();try{persist.current(configWithValues(initialConfig,latest.current));}catch{}},[initialConfig]);
+    useEffect(()=>{const timer=setTimeout(()=>{try{persist.current(configWithValues({...initialConfig,draftOrder:draftSnapshot.current},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);return()=>clearTimeout(timer);},[values,initialConfig]);
+    useEffect(()=>()=>{mounted.current=false;generation.current++;controller.current?.abort();try{persist.current(configWithValues({...initialConfig,draftOrder:draftSnapshot.current},latest.current));}catch{}},[initialConfig]);
     const put=next=>{latest.current=next;setValues(next);};
     const invalidate=()=>{generation.current++;setBusy(false);setStores([]);setSelectedID(null);setSelectedStore(null);};
     const focusField=key=>{setFocus(key);setEditing(Boolean(labels[key]));setReplace(true);};
@@ -110,9 +115,24 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             setSelectedStore(result);setPage('profile');focusField('continue');
         });
     };
+    const openBuilder=()=>{
+        const key=`${selectedID}:${method}`,catalog=prepareCatalog(selectedStore.menu.menu);
+        let order=draftCache.current.get(key),notice='';
+        if(!order){
+            order=new Order(customerFrom(latest.current));order.storeID=selectedID;order.serviceMethod=method;
+            const restored=new LocalOrderBuilder(order,catalog).restore(draftSnapshot.current||{});
+            if(restored.skipped)notice=`${restored.skipped} saved item(s) no longer match this menu.`;
+            draftCache.current.set(key,order);
+        }else order.addCustomer(customerFrom(latest.current));
+        setActiveBuilder({order,catalog,notice});setStep(order.products.length?4:3);setPage('builder');
+    };
+    const draftChanged=snapshot=>{
+        draftSnapshot.current=snapshot;
+        try{persist.current(configWithValues({...initialConfig,draftOrder:snapshot},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}
+    };
     const showMenu=()=>{if(!selectedStore||!selectedID||!method)return;setStep(2);setPage('menu');};
     useInput((input,key)=>{
-        if(inspect||page==='menu')return;
+        if(inspect||page==='menu'||page==='builder')return;
         if(key.leftArrow){back();return;}
         if(busy){if(input==='q')exit();return;}
         if(page==='location'){if(key.return||input===' ')useLocation();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;}
@@ -212,16 +232,18 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             info.EstimatedWaitMinutes?h(Text,null,`Estimated wait: ${info.EstimatedWaitMinutes}`):null,
             h(Box,{marginTop:1},h(Text,null,`store.info · ${Object.keys(info).length} fields · i inspect`)));
     }else if(page==='menu'&&step===2){
-        heading='What sounds good…?';body=h(Explorer,{menu:selectedStore.menu.dominosAPIResponse,storeID:selectedID,embedded:true,height:bodyHeight,onBack:()=>{setStep(1);setPage('profile');},onNext:()=>{setStep(3);setPage('lesson');}});
+        heading='What sounds good…?';body=h(Explorer,{menu:selectedStore.menu.dominosAPIResponse,storeID:selectedID,embedded:true,height:bodyHeight,onBack:()=>{setStep(1);setPage('profile');},onNext:openBuilder,nextLabel:'Build item'});
+    }else if(page==='builder'&&activeBuilder){
+        heading=null;body=h(OrderBuilder,{...activeBuilder,height:bodyHeight,onBack:()=>{setStep(2);setPage('menu');},onStage:stage=>setStep(stage==='items'?3:stage==='validate'?5:4),onChange:draftChanged,initialNotice:activeBuilder.notice});
     }else{
         heading=steps[step];body=h(Box,{flexDirection:'column'},h(Text,null,lessons[step]),step>=3&&step<=6?h(Text,null,'Items → Local Order → Validate → Price → Items'):null,
             step===4&&initialConfig.lastOrder?h(Text,null,`Last order: ${initialConfig.lastOrder.orderID||'—'} · Store ${initialConfig.lastOrder.storeID||'—'}`):null,
             h(Box,{marginTop:1},h(Text,null,'Learning step · execution will be connected as we go.')));
     }
-    const primary=busy?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':step<9?'n  Continue →':'q  Done';
+    const primary=busy||page==='builder'?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':step<9?'n  Continue →':'q  Done';
     return h(Box,{flexDirection:'column',height,width:size.columns,backgroundColor:palette.background,alignItems:'center'},
         h(Box,{width,height:2,flexShrink:0,flexDirection:'column'},h(Text,{bold:true},'🍕 domexplore'),h(Text,null,`${step+1} of 10 · ${steps[step]}${method?` · ${method}`:''}`)),
-        h(Box,{width,height:bodyHeight,justifyContent:page==='menu'||inspect?'flex-start':'center',flexDirection:'column',overflow:'hidden'},h(Text,{bold:true,color:palette.red},heading),h(Box,{marginTop:1,flexDirection:'column'},body)),
+        h(Box,{width,height:bodyHeight,justifyContent:page==='menu'||page==='builder'||inspect?'flex-start':'center',flexDirection:'column',overflow:'hidden'},heading?h(Text,{bold:true,color:palette.red},heading):null,h(Box,{marginTop:heading?1:0,flexDirection:'column'},body)),
         h(Box,{width,height:5,flexShrink:0,flexDirection:'column'},h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||''),
             h(Box,{marginTop:1,justifyContent:'space-between'},h(Text,null,page==='who'?'Ctrl+C  Quit':'←  Back'),h(Text,{color:palette.red,bold:true},primary))));
 }

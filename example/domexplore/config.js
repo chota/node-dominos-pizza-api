@@ -26,7 +26,7 @@ export function orderSummary(order){
     };
 }
 export function cleanConfig(config={}){
-    return {version:1,customer:strings(config.customer,contactKeys),address:{...strings(config.address,addressKeys),...deliveryPreferences(config.address),deliveryInstructions:composeInstructions(config.address)},lastOrder:orderSummary(config.lastOrder)};
+    return {version:1,customer:strings(config.customer,contactKeys),address:{...strings(config.address,addressKeys),...deliveryPreferences(config.address),deliveryInstructions:composeInstructions(config.address)},lastOrder:orderSummary(config.lastOrder),draftOrder:config.draftOrder?orderSummary(config.draftOrder):null};
 }
 export function loadConfig(path=configPath){
     try{

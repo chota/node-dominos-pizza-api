@@ -35,9 +35,23 @@ The root dependencies supply the real Customer, Address, NearbyStores and Store 
    - These controls compose the wire `Address.DeliveryInstructions` string. UI-only choices do not become extra wire fields.
 6. **Store selection:** search results are filtered for the chosen service. Delivery shows stores identified as serving the refined address. Arrows highlight; Enter explicitly chooses a single store. Up can reach the search action to repeat the lookup.
 7. **Your store:** only after both service method and store are chosen, construct the package’s `Store(storeID)`. This fetches its profile and menu. Display `store.info`; `i` browses every profile field. Enter continues to the already-loaded menu. No separate menu fetch is needed.
-8. **Menu:** arrows select, Enter/right opens, left goes back, `/` filters, `h` returns to the root, and `n` continues to Items. `↗` rows follow product/variant references.
+8. **Menu:** arrows select, Enter/right opens, left goes back, `/` filters, `h` returns to the root, and `n` opens Add Item. `↗` rows follow product/variant references.
 
-Items through Track currently explain the process; their execution is **not connected yet**. This version does not validate, price, pay for, place, or track an order.
+## Item and local order builders
+
+Add Item uses the original package’s **`menu.menu`**, indexed once per selected store. Its presentation follows Pizza Pal’s Add Item overlay:
+
+- Collapsed food categories, with Pizza expanded initially for an empty order.
+- BYO Pizza and Personal Domino families; specialty pizzas grouped under one family selector.
+- Size and crust selectors appear only when there is more than one real choice. Choosing another size/crust always resolves to an existing variant code; unavailable options are adjusted or removed with a notice.
+- Defaults come from `defaultToppings`; allowed amounts come from the chosen variant’s `availableToppings`, per-code restrictions and menu tags. Seasonings marked `ignoreQty` have no Light/Extra choices. Side cups are binary choices. The menu supplies topping limits; BYO Extra consumes two slots and Personal Domino’s included provolone consumes a slot.
+- Default toppings are visible. `+ Topping / side` opens additional choices. Enter opens a vertical picker; Left/Escape cancels. Quantity has a local UI bound of 1–99. Whole-item options (`1/1`) are supported; imported half-item configurations are not silently flattened.
+- Select Add item or press `+` to create the package’s actual `Item` and append it to the actual `Order`. Each Add Item session adds one item, then closes to order review. `i` previews Item fields separately from normal names and labels.
+
+Order review keeps the same `Order` instance and retains returned identity fields during local edits. Enter edits the selected item, `a` adds another, and `d` removes it. API → Order payload shows the original package serialization. Every mutation invalidates the builder’s validation/pricing revision markers. Menu prices are labeled as menu prices; no payable total is fabricated.
+
+Continue leads to the validation checkpoint, with Left returning to edit the same draft. **Server validation, pricing, payment, placement and tracking are not connected yet.** Building or editing an item sends no order request.
+
 
 Arrows navigate fields; Return/Tab accepts and advances. The first typed character replaces existing focused text. Ctrl+U clears a field. Left goes back; Backspace deletes while typing and goes back outside text entry. Escape leaves typing mode. Ctrl+C exits at any time; outside text entry, `q` also exits. Going back cancels/invalidates pending requests so a late response cannot restore an old store selection.
 
@@ -45,7 +59,7 @@ Arrows navigate fields; Return/Tab accepts and advances. The first typed charact
 
 `~/.domexplore.conf` is JSON, created atomically with owner-only read/write permissions (`0600`). Contact/address edits are saved shortly after typing and flushed on normal exit. On launch, values are restored and First Name is focused. A malformed config is reported rather than overwritten.
 
-The schema has `version`, `customer`, `address`, and `lastOrder`. Address data includes the handoff choice, three checkbox booleans, extra text, and the composed delivery-instructions string. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials, passwords, and tokens are excluded. A cached last order is shown at Local Order, but never auto-submitted and never used to auto-select a store. Since placement is not connected yet, a new installation has `lastOrder: null`.
+The schema has `version`, `customer`, `address`, `draftOrder`, and `lastOrder`. Local draft items are cached separately from placed-order history and restored only after explicitly choosing their matching store and service method; saved options are checked against the current menu. Address data includes the handoff choice, three checkbox booleans, extra text, and the composed delivery-instructions string. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials, passwords, and tokens are excluded. A cached last order is shown at Local Order, but never auto-submitted and never used to auto-select a store. Since placement is not connected yet, a new installation has `lastOrder: null`.
 
 ## Native location helper
 
@@ -67,4 +81,6 @@ Interaction is keyboard-only. There is no advanced mode, hidden gesture, mouse r
 npm test
 ```
 
-Offline checks cover both service branches, eligibility filtering, explicit store selection, Store/profile identity, late-response handling, required handoff, compact instruction composition and bounds, config persistence, and menu navigation. Live read-only discovery and Store construction were also verified using the repository’s public example address; no user location was transmitted in that check.
+Offline checks cover both service branches, store identity, handoff controls, menu grouping, per-code option amounts and limits, size/crust reconciliation, actual Item/Order serialization, identity preservation, draft caching/restoration, and keyboard add/edit/remove flows. Live read-only discovery and Store construction were also verified using the repository’s public example address; no user location was transmitted in that check.
+
+The live 2801 menu was also indexed for the item builder: 70 product families and 228 variants, all with locally valid default configurations. Only profile/menu GET requests were made; local checks do not certify server order validation.

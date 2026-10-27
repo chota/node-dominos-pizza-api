@@ -32,3 +32,10 @@ test('structured delivery choices survive cache round-trips without duplicating 
   assert.equal(again.address.unitNumber,'4B');
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('local draft items survive cache round-trip separately from placed-order history',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'domexplore-config-')),path=join(dir,'config');
+ try{
+  saveConfig({lastOrder:{orderID:'placed-before',storeID:'1234',products:[]},draftOrder:{StoreID:'1234',ServiceMethod:'Carryout',Products:[{Code:'TEST',Qty:2,Options:{C:{'1/1':'1.5'}}}],Payments:[{Number:'never-save'}]}},path);
+  const loaded=loadConfig(path);assert.equal(loaded.lastOrder.orderID,'placed-before');assert.equal(loaded.draftOrder.products[0].code,'TEST');assert.equal(loaded.draftOrder.products[0].qty,2);assert.deepEqual(loaded.draftOrder.products[0].options,{C:{'1/1':'1.5'}});assert.doesNotMatch(readFileSync(path,'utf8'),/never-save/);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

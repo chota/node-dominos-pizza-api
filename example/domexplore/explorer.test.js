@@ -140,3 +140,22 @@ test('back navigation discards a late Store result',async()=>{
   resolve();await tick();assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Your store/);
  }finally{cleanup(screen);}
 });
+import {builderMenu} from './builder-fixture.js';
+test('the item overlay adds to the selected-store Order and preserves that draft when reopened',async()=>{
+ const {screen,calls}=harness({services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:menu}};}}}});
+ try{
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'n');
+  assert.match(screen.lastFrame(),/4 of 10 · Items/);assert.match(screen.lastFrame(),/BYO Pizza/);
+  await key(screen,'\x1b[B');await key(screen,'\r');await key(screen,'+');
+  assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/1 item · Local draft/);
+  await key(screen,'\x1b[D');await key(screen,'n');assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/1 item · Local draft/);
+ }finally{cleanup(screen);}
+ const saved=calls.saved.at(-1);assert.equal(saved.draftOrder.storeID,'1111');assert.equal(saved.draftOrder.serviceMethod,'Carryout');assert.equal(saved.draftOrder.products[0].code,'LHT');assert.equal(saved.lastOrder,null);
+});
+test('a cached local draft restores only after the same store and method are explicitly selected',async()=>{
+ const {screen}=harness({initialConfig:{draftOrder:{storeID:'1111',serviceMethod:'Carryout',products:[{code:'LHT',qty:2,options:{X:{'1/1':'1'},C:{'1/1':'1'}}}]}},services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:menu}};}}}});
+ try{
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'n');
+  assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/2 × Large Hand Tossed Pizza/);
+ }finally{cleanup(screen);}
+});
