@@ -31,7 +31,6 @@ export function Explorer({menu, storeID, fetchedAt, active=true, embedded=false,
             if(input&&!key.ctrl&&!key.meta){setQuery(q=>q+input);setSelected(0);}return;
         }
         if(input==='q'){exit();return;}
-        if(input==='b'&&embedded){onBack?.();return;}
         if(input==='n'&&embedded){onNext?.();return;}
         if(input==='/'){setSearching(true);return;}
         if(input==='h'){navigate([]);return;}

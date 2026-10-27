@@ -39,15 +39,15 @@ test('autofocus, Return progression, separate address page, and persistence',asy
  const writes=[];let requests=0;
  const screen=render(React.createElement(LearningApp,{onPersist:config=>writes.push(config),services:{locateAddress:async()=>{requests++;return address;}}}));
  try{
-  await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Street:/);
+  await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Enter next/);assert.doesNotMatch(screen.lastFrame(),/Street:/);
   await contact(screen);await tick();
   assert.match(screen.lastFrame(),/Where…\?/);assert.doesNotMatch(screen.lastFrame(),/First name:/);
   assert.match(screen.lastFrame(),/Street: 123 Example St/);assert.equal(requests,1);
   for(let i=0;i<4;i++){screen.stdin.write('\r');await tick();}
   screen.stdin.write('d');await tick();assert.match(screen.lastFrame(),/Unit number:/);
   screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
-  screen.stdin.write('b');await tick();assert.match(screen.lastFrame(),/Where…\?/);
-  screen.stdin.write('\x1b');await tick();screen.stdin.write('b');await tick();assert.match(screen.lastFrame(),/Who…\?/);
+  screen.stdin.write('\x7f');await tick();assert.match(screen.lastFrame(),/Where…\?/);
+  screen.stdin.write('\x1b[D');await tick();assert.match(screen.lastFrame(),/Who…\?/);
   assert.match(screen.lastFrame(),/First name: Alex/);
  }finally{screen.unmount();screen.cleanup();}
  assert.equal(writes.at(-1).customer.email,'alex@example.com');assert.equal(writes.at(-1).address.street,address.street);
@@ -67,7 +67,7 @@ test('cached values restore without assuming a store; first typing replaces the 
  const screen=render(React.createElement(LearningApp,{initialConfig,onPersist:config=>writes.push(config),services:{locateAddress:async()=>{locations++;return address;}}}));
  try{
   await tick();assert.match(screen.lastFrame(),/Remembered▏/);
-  screen.stdin.write('Alex');await tick();screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();
+  screen.stdin.write('Alex');await tick();screen.stdin.write('\x7f');await tick();assert.match(screen.lastFrame(),/First name: Ale▏/);screen.stdin.write('x');await tick();screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();
   assert.match(screen.lastFrame(),/Where…\?/);assert.equal(locations,0);
   screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/No store selected/);
  }finally{screen.unmount();screen.cleanup();}

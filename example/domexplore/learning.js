@@ -92,6 +92,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     const request=async fn=>{setBusy(true);setStatus('Loading…');try{await fn();}catch(error){setStatus(error.message);}finally{setBusy(false);}};
     useInput((input,key)=>{
         if(step===0&&part==='where'&&key.ctrl&&input==='l'){void useLocation(true);return;}
+        if(key.leftArrow){if(!(step===2&&menu))previous();return;}
         if(step===0&&editing){
             if(key.escape){setEditing(false);return;}
             if(key.ctrl&&input==='u'){editValue('');return;}
@@ -112,7 +113,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         }
         if(step===2&&menu)return;
         if(input==='q'){exit();return;}if(busy)return;
-        if(input==='b'){previous();return;}
+        if(key.backspace||key.delete){previous();return;}
         if((input==='n'||(key.return&&step===0))&&step===0){
             if(part==='who')where();else{setStoreIndex(-1);setStep(1);setStatus('');}return;
         }
@@ -157,7 +158,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         body=h(Box,{flexDirection:'column'},
             part==='where'?h(Text,{color:palette.red},locating?'📍 Finding location…':'📍 Ctrl+L · Use my location'):null,
             ...visible.map(r=>r.heading?h(Text,{key:'where',bold:true,color:palette.red},r.heading):row(r.indexes)),
-            h(Box,{marginTop:1},h(Text,null,editing?'Enter next · ↑↓ move · Ctrl+U clear · Esc navigation':part==='where'?`Enter continue · ↑↓ edit · d ${details?'fewer':'address'} details`:'Enter continue · ↑↓ edit')));
+            part==='where'?h(Box,{marginTop:1},h(Text,null,editing?'Enter next · ↑↓ move · Ctrl+U clear · Esc navigation':`Enter continue · ↑↓ edit · d ${details?'fewer':'address'} details`)):null);
     }else if(step===1){
         const capacity=Math.max(1,contentHeight-5),start=Math.floor(Math.max(0,storeIndex)/capacity)*capacity;
         body=h(Box,{flexDirection:'column'},
@@ -187,6 +188,6 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         h(Box,{width,flexDirection:'column',height:4,flexShrink:0},
             h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||(step===0?'Saved locally in ~/.domexplore.conf':lessons[step])),
             h(Box,{marginTop:1,justifyContent:'space-between'},
-                h(Text,null,step||part==='where'?'b  Back':'Ctrl+C  Quit'),
+                h(Text,null,step||part==='where'?'←  Back':'Ctrl+C  Quit'),
                 h(Text,{color:palette.red,bold:true},step===0&&editing?'Enter  Next →':step===0?'Enter  Continue →':step<9?'n  Continue →':'q  Done'))));
 }
