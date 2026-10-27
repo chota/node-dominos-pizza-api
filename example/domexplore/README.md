@@ -1,21 +1,50 @@
 # domexplore
 
-An Ink + React interface, using the same terminal UI libraries as torlnk. Requires Node 22 or newer; dependencies are isolated from the core Domino’s package.
+A keyboard-driven learning app using Ink + React, the terminal UI libraries used by torlnk. Requires Node 22 or newer. Start at **Customer/address**, then move through the established ordering path:
+
+Customer/address → Store → Menu → Items → Local Order → Validate → Price → Payment → Place → Track
+
+Items → Local Order → Validate → Price → Items is the basket/DSS loop.
+
+## Setup
+
+From the repository root:
 
 ```sh
+npm ci --ignore-scripts --omit=dev
 cd example/domexplore
 npm ci
-npm start -- 2801
+npm link
+# From any directory:
+domexplore 2801
 ```
 
-Fetches a fresh menu when launched. This first version browses the **raw** Domino’s response, whose field names match the service. It does not yet display the package’s parsed `Menu.menu` representation.
+The root dependencies supply the real Customer, Address and NearbyStores classes. Ink/React dependencies remain isolated in this example.
 
-Use arrows to select, Enter/right to open, left to go back, `/` to filter the current level, Escape to cancel filtering or go back, `h` for home, and `q` to quit. On product objects, `↗ Variant` rows follow the actual `Variants` references. Preconfigured choices link through `ReferencedProductCode`; variants link back through `ProductCode`.
+## Learning flow
 
-Try `Products → S_PIZZA → ↗ Variant`, or `Categorization` to inspect the browsing hierarchy. Fields and codes come from the selected store’s response; menus can change.
+- Customer/address: arrows select fields, Enter edits, Enter saves, Escape cancels. Constructs the actual package Customer/Address locally. Nothing is sent on launch. Values stay in memory; exiting discards them.
+- `n` advances and `b` goes back between learning pages.
+- Store: `s` searches using the entered address. Only online-capable delivery stores with the store and delivery service open can be selected. Arrows select, Enter chooses.
+- Menu: `l` loads the live raw menu. The command-line store ID (default 2801) is an exploration target, not proof that it delivers to the customer. An eligible store selected from search replaces that target.
+- Menu browser: arrows select; Enter/right opens; left goes back; `/` filters; `h` returns to the root; `n` advances to Items. Product and variant references are followed with `↗` rows.
+- Items through Track currently explain the process; their execution is **not connected yet**. No validate, price, payment, place, or tracking requests are made by this version.
+- `q` quits when not editing or filtering. Ctrl+C also exits.
 
-This explorer only requests the menu. It does not validate, price, pay for, or place orders. The larger ordering cycle will be added in deliberate stages.
+## Advanced mode: the only mouse interaction
 
-Run offline checks with `npm test`.
+Click the **bottom-right character cell of the terminal’s content area** five times consecutively with the left mouse button. Complete each click (press and release) with no more than one second between clicks. Another location/button, keyboard input, resize, or a longer gap resets the sequence. Repeat to turn advanced mode off.
 
-To install the command locally from this folder, run `npm link`, then use `domexplore 2801`. No npm publication is required.
+The cell’s background is gray normally and green in advanced mode. The heading also says ADVANCED. The target follows terminal resizing and is not the window border or scrollbar. There are no other mouse actions.
+
+Advanced mode adds **API responses** below the current step. Responses start collapsed. Tab switches keyboard focus between the current step and the response tree; arrows select, Enter toggles a branch, right expands, left collapses. Disabling advanced mode hides the tree. The most recent ten store-search/menu responses are retained in session memory, including returned address data; nothing is written to disk.
+
+Uses xterm-compatible button reporting (1000) and SGR cell coordinates (1006). The terminal must support those protocols and pass mouse reports to the app; some terminals/multiplexers have settings that intercept clicks. Reporting is disabled on normal quit, Ctrl+C, and SIGTERM, and the previous screen is restored. As with other terminal apps, SIGKILL cannot run cleanup.
+
+## Checks
+
+```sh
+npm test
+```
+
+Offline checks cover menu links, loading failures, navigation, customer entry, response expansion, mouse decoding, five-click recognition, resizing, and reporting cleanup.

@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 import React from 'react';
 import {render} from 'ink';
-import {loadMenu} from './model.js';
-import {Explorer} from './ui.js';
+import {LearningApp} from './learning.js';
+import {terminalControls} from './terminal.js';
 
-const storeID = process.argv[2] || '2801';
 if(!process.stdin.isTTY || !process.stdout.isTTY){
-    console.error('Run this explorer in an interactive terminal: npm start -- 2801');
+    console.error('Run domexplore in an interactive terminal.');
     process.exitCode=1;
 }else{
+    let terminal,app;
+    const stop=()=>app?.unmount();
     try{
-        console.log(`Loading menu for store ${storeID}…`);
-        const menu=await loadMenu(storeID);
-        render(React.createElement(Explorer,{menu,storeID,fetchedAt:new Date().toLocaleString('en-US', {timeZone:'America/Chicago',timeZoneName:'short'})}));
+        terminal=terminalControls(process.stdin,process.stdout);
+        process.once('SIGTERM',stop);process.once('SIGINT',stop);
+        app=render(React.createElement(LearningApp,{terminal,initialStoreID:process.argv[2]||'2801'}),{
+            stdin:terminal.input,alternateScreen:true,onRender:()=>setImmediate(()=>terminal.paint())
+        });
+        await app.waitUntilExit();
     }catch(error){console.error(error.message);process.exitCode=1;}
+    finally{
+        terminal?.close();
+        process.removeListener('SIGTERM',stop);process.removeListener('SIGINT',stop);
+    }
 }
