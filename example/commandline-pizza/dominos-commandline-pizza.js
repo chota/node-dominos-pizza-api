@@ -18,7 +18,7 @@ rl.write(`${distance}`);
 distance = parseInt(await rl.question('Distance?'));
 
 const nearbyStores=await new NearbyStores(customer.address);
-console.log(`List of stores that will deliver within ${distance} miles:`);
+console.log(`List of stores currently open for delivery within ${distance} miles:`);
 console.table(
     {
         'customer address':nearbyStores.address
@@ -32,6 +32,8 @@ for(const store of nearbyStores.stores){
     if(
         store.IsOnlineCapable 
         && store.IsDeliveryStore
+        && store.IsOpen
+        && store.ServiceIsOpen?.Delivery
     ){
         //console.log(store);
         deliveryStores[store.StoreID]={
@@ -45,8 +47,18 @@ for(const store of nearbyStores.stores){
 
 console.table(deliveryStores);
 
+if(Object.keys(deliveryStores).length===0){
+    rl.close();
+    throw new Error('No nearby stores are currently open for online delivery.');
+}
+
 rl.write(`${Object.keys(deliveryStores)[0]}`);
 storeID=await rl.question('Which Store?');
+
+if(!Object.prototype.hasOwnProperty.call(deliveryStores,storeID)){
+    rl.close();
+    throw new Error('Choose a store from the list of stores currently open for delivery.');
+}
 
 console.log(`Menu for StoreID ${storeID}:`);
 const menu=await new Menu(storeID);
