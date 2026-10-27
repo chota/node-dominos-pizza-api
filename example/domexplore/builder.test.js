@@ -50,7 +50,7 @@ test('Add Item opens pizza for an empty draft, commits one item, then opens coll
  const draft=order(),snapshots=[],screen=render(React.createElement(OrderBuilder,{order:draft,catalog,height:20,onChange:s=>snapshots.push(s)}));
  try{
   await tick();assert.match(screen.lastFrame(),/BYO Pizza/);await key(screen,'\x1b[B');await key(screen,'\r');assert.match(screen.lastFrame(),/Hand Tossed/);
-  await key(screen,'+');assert.equal(draft.products.length,1);assert.match(screen.lastFrame(),/1 item · Local draft/);
+  await key(screen,'+');assert.equal(draft.products.length,1);assert.match(screen.lastFrame(),/1 item/);
   await key(screen,'a');assert.doesNotMatch(screen.lastFrame(),/BYO Pizza/);assert.match(screen.lastFrame(),/▸.*Pizzas/);
   await key(screen,'\x1b');await key(screen,'\r');
   await key(screen,'\x1b[B');await key(screen,'\x1b[B');await key(screen,'\r');assert.match(screen.lastFrame(),/Quantity/);

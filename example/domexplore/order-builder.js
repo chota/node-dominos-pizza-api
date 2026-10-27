@@ -5,7 +5,7 @@ export class LocalOrderBuilder {
     validatedRevision=null;
     pricedRevision=null;
     constructor(order,catalog){if(!(order instanceof Order))throw Error('An actual package Order is required.');this.order=order;this.catalog=catalog;}
-    changed(){this.revision++;this.validatedRevision=null;this.pricedRevision=null;}
+    changed(){this.revision++;this.validatedRevision=null;this.pricedRevision=null;this.order.payments=[];}
     selection(index){
         const item=this.order.products[index],variant=this.catalog.byVariant.get(item?.code);
         if(!variant)throw Error('This item is no longer available in the menu.');

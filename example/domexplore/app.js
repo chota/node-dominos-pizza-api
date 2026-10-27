@@ -1,7 +1,7 @@
 import React,{useState,useRef,useEffect} from 'react';
 import {Box,useInput,useApp,useStdout} from 'ink';
 import {Customer,Address,NearbyStores,Store,Order} from '../../index.js';
-import {Explorer} from './ui.js';
+import {contactError,phoneNumber} from './checkout.js';
 import {prepareCatalog} from './catalog.js';
 import {OrderBuilder} from './builder-ui.js';
 import {LocalOrderBuilder} from './order-builder.js';
@@ -12,23 +12,22 @@ import {deliveryPreferences,composeInstructions,eligibleStores,handoffs,checks,E
 const h=React.createElement,empty=Object.freeze({});
 const contact=['firstName','lastName','phone','email'];
 const labels={firstName:'First name',lastName:'Family name',phone:'Phone',email:'Email',street:'Street',city:'City',region:'State / region',postalCode:'Postal code',unitNumber:'Apartment number',additionalInstructions:'Extra'};
-const steps=['Customer/address','Store','Menu','Items','Local Order','Validate','Price','Payment','Place','Track'];
-const lessons=['','','','Item · A variant code, quantity and options.','Order · One local draft, holding contact details and items.','Validate · Send the draft and retain returned order identity.','Price · Get fresh totals; edit items and repeat the loop.','Payment · Attach after reviewing the latest price.','Place · Submit once and inspect the result.','Tracking · Retrieve progress separately from the basket.'];
 export function customerFrom(values){
-    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address({
+    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:phoneNumber(values.phone),email:values.email||'',address:new Address({
         ...Object.fromEntries(['street','city','region','postalCode','unitNumber'].map(key=>[key,values[key]||''])),
         unitType:values.residenceType==='Apartment'?'APT':'',deliveryInstructions:composeInstructions(values)
     })});
 }
-export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice='',services={}}){
+export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',services={}}){
     const api={NearbyStores,Store,locateAddress,...services};
     const seed={...initialConfig.customer,...initialConfig.address,...deliveryPreferences(initialConfig.address)};
-    const [values,setValues]=useState(seed),[step,setStep]=useState(0),[page,setPage]=useState('who');
+    const [values,setValues]=useState(seed),[page,setPage]=useState('who');
     const [focus,setFocus]=useState('firstName'),[editing,setEditing]=useState(true),[replace,setReplace]=useState(true);
     const [attempted,setAttempted]=useState(false),[locationResolved,setLocationResolved]=useState(false),[method,setMethod]=useState(null),[methodChoice,setMethodChoice]=useState('Carryout');
     const [residenceChoice,setResidenceChoice]=useState(seed.residenceType||'House'),[handoffChoice,setHandoffChoice]=useState(seed.handoff||'hand');
-    const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null),[inspect,setInspect]=useState(false);
+    const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null);
     const [activeBuilder,setActiveBuilder]=useState(null);
+    const ledger=useRef({pendingOrder:initialConfig.pendingOrder||null,lastOrder:initialConfig.lastOrder||null});
     const draftCache=useRef(new Map()),draftSnapshot=useRef(initialConfig.draftOrder||null);
     const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
     const latest=useRef(seed),persist=useRef(onPersist),generation=useRef(0),controller=useRef(null),mounted=useRef(true);
@@ -36,8 +35,8 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
     const {exit}=useApp(),{stdout}=useStdout();
     const [size,setSize]=useState({columns:stdout.columns||80,rows:stdout.rows||30});
     useEffect(()=>{const resize=()=>setSize({columns:stdout.columns||80,rows:stdout.rows||30});stdout.on?.('resize',resize);return()=>stdout.off?.('resize',resize);},[stdout]);
-    useEffect(()=>{const timer=setTimeout(()=>{try{persist.current(configWithValues({...initialConfig,draftOrder:draftSnapshot.current},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);return()=>clearTimeout(timer);},[values,initialConfig]);
-    useEffect(()=>()=>{mounted.current=false;generation.current++;controller.current?.abort();try{persist.current(configWithValues({...initialConfig,draftOrder:draftSnapshot.current},latest.current));}catch{}},[initialConfig]);
+    useEffect(()=>{const timer=setTimeout(()=>{try{persist.current(configWithValues({...initialConfig,...ledger.current,draftOrder:draftSnapshot.current},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);return()=>clearTimeout(timer);},[values,initialConfig]);
+    useEffect(()=>()=>{mounted.current=false;generation.current++;controller.current?.abort();try{persist.current(configWithValues({...initialConfig,...ledger.current,draftOrder:draftSnapshot.current},latest.current));}catch{}},[initialConfig]);
     const put=next=>{latest.current=next;setValues(next);};
     const invalidate=()=>{generation.current++;setBusy(false);setStores([]);setSelectedID(null);setSelectedStore(null);};
     const focusField=key=>{setFocus(key);setEditing(Boolean(labels[key]));setReplace(true);};
@@ -49,10 +48,9 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
     const cancel=()=>{generation.current++;controller.current?.abort();controller.current=null;setBusy(false);setStatus('');};
     const back=()=>{
         cancel();
-        if(step>=3){if(step===3){setStep(2);setPage('menu');}else setStep(old=>old-1);return;}
-        if(step===2){setStep(1);setPage('profile');return;}
+        if(page==='builder'){setPage('profile');return;}
         if(page==='profile'){setPage('stores');setSelectedID(null);setSelectedStore(null);return;}
-        if(page==='stores'){setSelectedID(null);setSelectedStore(null);setStep(0);setPage(method==='Delivery'?'address':'method');focusField(method==='Delivery'?'continue':'method');return;}
+        if(page==='stores'){setSelectedID(null);setSelectedStore(null);setPage(method==='Delivery'?'address':'method');focusField(method==='Delivery'?'continue':'method');return;}
         if(page==='address'||page==='manual'){invalidate();setPage('method');focusField('method');return;}
         if(page==='location'||page==='after-location'){setPage('method');focusField('method');return;}
         if(page==='method'){setPage('who');focusField('firstName');return;}
@@ -77,9 +75,9 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
     useEffect(()=>{if(page==='location'&&!busy&&status&&controller.current){controller.current=null;setAttempted(true);setLocationResolved(false);setPage('after-location');}},[page,busy,status]);
     const beginSearch=serviceMethod=>{
         if(serviceMethod==='Carryout'&&!latest.current.postalCode?.trim()&&!latest.current.city?.trim()){
-            setStep(0);setPage('manual');focusField('city');return;
+            setPage('manual');focusField('city');return;
         }
-        setStep(1);setPage('stores');setStoreIndex(-1);setStores([]);setSelectedID(null);setSelectedStore(null);
+        setPage('stores');setStoreIndex(-1);setStores([]);setSelectedID(null);setSelectedStore(null);
         run(()=>new api.NearbyStores(customerFrom(latest.current).address,serviceMethod),result=>{
             if(!Array.isArray(result.stores))throw Error('Store lookup returned no store list.');
             const choices=eligibleStores(result.stores,serviceMethod);setStores(choices);setStoreIndex(choices.length?0:-1);
@@ -124,15 +122,17 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             if(restored.skipped)notice=`${restored.skipped} saved item(s) no longer match this menu.`;
             draftCache.current.set(key,order);
         }else order.addCustomer(customerFrom(latest.current));
-        setActiveBuilder({order,catalog,notice});setStep(order.products.length?4:3);setPage('builder');
+        setActiveBuilder({order,catalog,notice});setPage('builder');
     };
     const draftChanged=snapshot=>{
         draftSnapshot.current=snapshot;
-        try{persist.current(configWithValues({...initialConfig,draftOrder:snapshot},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}
+        try{persist.current(configWithValues({...initialConfig,...ledger.current,draftOrder:snapshot},latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}
     };
-    const showMenu=()=>{if(!selectedStore||!selectedID||!method)return;setStep(2);setPage('menu');};
+    const saveLedger=next=>{persist.current(configWithValues({...initialConfig,...next,draftOrder:draftSnapshot.current},latest.current));ledger.current=next;};
+    const pendingChanged=pendingOrder=>saveLedger({...ledger.current,pendingOrder});
+    const orderPlaced=lastOrder=>{const old=draftSnapshot.current;draftSnapshot.current=null;try{saveLedger({lastOrder,pendingOrder:null});}catch(error){draftSnapshot.current=old;throw error;}};
     useInput((input,key)=>{
-        if(inspect||page==='menu'||page==='builder')return;
+        if(page==='builder')return;
         if(key.leftArrow){back();return;}
         if(busy){if(input==='q')exit();return;}
         if(page==='location'){if(key.return||input===' ')useLocation();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;}
@@ -163,7 +163,7 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             if(key.ctrl&&input==='u'){change('');return;}
             if(key.return||key.tab){
                 put({...latest.current,[focus]:(latest.current[focus]||'').trim()});
-                if(page==='who'&&focus==='email'&&!key.shift){setPage('method');focusField('method');}
+                if(page==='who'&&focus==='email'&&!key.shift){const error=contactError(latest.current);if(error){setStatus(error.message);focusField(error.field);}else{setPage('method');focusField('method');}}
                 else move(key.shift?-1:1);return;
             }
             if(key.upArrow){move(-1);return;}if(key.downArrow){move(1);return;}
@@ -182,9 +182,9 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             if(input==='s'||key.return&&storeIndex===-1)beginSearch(method);else if(key.return)chooseStore();return;
         }
         if(page==='profile'){
-            if(input==='i')setInspect(true);else if(key.return||input==='n')showMenu();return;
+            if(key.return)openBuilder();return;
         }
-        if(input==='n'||key.return)setStep(old=>Math.min(9,old+1));
+
     });
     const width=Math.max(16,Math.min(68,size.columns-4)),height=Math.max(8,size.rows),bodyHeight=Math.max(3,height-7);
     const inputRow=keys=>h(Box,{key:keys.join('-'),flexDirection:width<44?'column':'row'},...keys.map(field=>{
@@ -224,26 +224,19 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             h(Box,{marginTop:1},h(Text,{color:storeIndex===-1?palette.red:palette.text},`${storeIndex===-1?'›':' '} Find ${method?.toLowerCase()} stores → Enter`)));
     }else if(page==='profile'){
         heading='Your store';const info=selectedStore?.info||{};
-        body=inspect?h(Explorer,{menu:info,embedded:true,height:bodyHeight,onBack:()=>setInspect(false),onNext:()=>{setInspect(false);showMenu();}}):h(Box,{flexDirection:'column'},
+        body=h(Box,{flexDirection:'column'},
             h(Text,{bold:true},`🏪 ${info.StoreName||`Domino’s ${selectedID}`} · ${method}`),
             h(Text,null,info.AddressDescription||[info.StreetName,info.City,info.Region,info.PostalCode].filter(Boolean).join(', ')),
             info.Phone?h(Text,null,info.Phone):null,
             h(Text,null,`${info.IsOpen===true?'Open':info.IsOpen===false?'Closed':'Hours'} · ${info.ServiceHoursDescription?.[method]||info.HoursDescription||''}`),
-            info.EstimatedWaitMinutes?h(Text,null,`Estimated wait: ${info.EstimatedWaitMinutes}`):null,
-            h(Box,{marginTop:1},h(Text,null,`store.info · ${Object.keys(info).length} fields · i inspect`)));
-    }else if(page==='menu'&&step===2){
-        heading='What sounds good…?';body=h(Explorer,{menu:selectedStore.menu.dominosAPIResponse,storeID:selectedID,embedded:true,height:bodyHeight,onBack:()=>{setStep(1);setPage('profile');},onNext:openBuilder,nextLabel:'Build item'});
+            info.EstimatedWaitMinutes?h(Text,null,`Estimated wait: ${info.EstimatedWaitMinutes}`):null);
     }else if(page==='builder'&&activeBuilder){
-        heading=null;body=h(OrderBuilder,{...activeBuilder,height:bodyHeight,onBack:()=>{setStep(2);setPage('menu');},onStage:stage=>setStep(stage==='items'?3:stage==='validate'?5:4),onChange:draftChanged,initialNotice:activeBuilder.notice});
-    }else{
-        heading=steps[step];body=h(Box,{flexDirection:'column'},h(Text,null,lessons[step]),step>=3&&step<=6?h(Text,null,'Items → Local Order → Validate → Price → Items'):null,
-            step===4&&initialConfig.lastOrder?h(Text,null,`Last order: ${initialConfig.lastOrder.orderID||'—'} · Store ${initialConfig.lastOrder.storeID||'—'}`):null,
-            h(Box,{marginTop:1},h(Text,null,'Learning step · execution will be connected as we go.')));
+        heading=null;body=h(OrderBuilder,{...activeBuilder,storeInfo:selectedStore.info,pendingOrder:ledger.current.pendingOrder,onPending:pendingChanged,onPlaced:orderPlaced,height:bodyHeight,onBack:()=>setPage('profile'),onChange:draftChanged,initialNotice:activeBuilder.notice});
     }
-    const primary=busy||page==='builder'?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':step<9?'n  Continue →':'q  Done';
+    const primary=busy||page==='builder'?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':'Enter  Continue →';
     return h(Box,{flexDirection:'column',height,width:size.columns,backgroundColor:palette.background,alignItems:'center'},
-        h(Box,{width,height:2,flexShrink:0,flexDirection:'column'},h(Text,{bold:true},'🍕 domexplore'),h(Text,null,`${step+1} of 10 · ${steps[step]}${method?` · ${method}`:''}`)),
-        h(Box,{width,height:bodyHeight,justifyContent:page==='menu'||page==='builder'||inspect?'flex-start':'center',flexDirection:'column',overflow:'hidden'},heading?h(Text,{bold:true,color:palette.red},heading):null,h(Box,{marginTop:heading?1:0,flexDirection:'column'},body)),
+        h(Box,{width,height:2,flexShrink:0,flexDirection:'column'},h(Text,{bold:true},'🍕 domexplore'),h(Text,null,method||'Order your way')),
+        h(Box,{width,height:bodyHeight,justifyContent:page==='builder'?'flex-start':'center',flexDirection:'column',overflow:'hidden'},heading?h(Text,{bold:true,color:palette.red},heading):null,h(Box,{marginTop:heading?1:0,flexDirection:'column'},body)),
         h(Box,{width,height:5,flexShrink:0,flexDirection:'column'},h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||''),
             h(Box,{marginTop:1,justifyContent:'space-between'},h(Text,null,page==='who'?'Ctrl+C  Quit':'←  Back'),h(Text,{color:palette.red,bold:true},primary))));
 }

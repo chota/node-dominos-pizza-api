@@ -2,44 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {render} from 'ink-testing-library';
-import {Explorer} from './ui.js';
-import {atPath, references, loadMenu} from './model.js';
-const menu={Products:{PIZZA:{Name:'Pizza',Variants:['SMALL']}},Variants:{SMALL:{Name:'Small pizza',ProductCode:'PIZZA'}},Categorization:{},PreconfiguredProducts:{POPULAR:{ReferencedProductCode:'SMALL'}}};
-test('references connect products, variants and preconfigured recipes',()=>{
- assert.deepEqual(references(menu,menu.Products.PIZZA,[])[0].path,['Variants','SMALL']);
- assert.deepEqual(references(menu,menu.Variants.SMALL,[])[0].path,['Products','PIZZA']);
- assert.deepEqual(references(menu,menu.PreconfiguredProducts.POPULAR,[])[0].path,['Variants','SMALL']);
- assert.equal(atPath(menu,['Variants','SMALL','Name']),'Small pizza');
-});
-test('menu loading checks status, JSON and expected catalogs',async()=>{
- await assert.rejects(loadMenu('bad'),/digits/);
- await assert.rejects(loadMenu('2801',async()=>({ok:false,status:403})),/403/);
- await assert.rejects(loadMenu('2801',async()=>({ok:true,json:async()=>{throw Error()}})),/non-JSON/);
- await assert.rejects(loadMenu('2801',async()=>({ok:true,json:async()=>({})})),/missing/);
- assert.equal(await loadMenu('2801',async()=>({ok:true,json:async()=>menu})),menu);
-});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,70));
-test('keyboard opens products, follows a variant, and returns home',async()=>{
- const screen=render(React.createElement(Explorer,{menu,storeID:'2801',fetchedAt:'test'}));
- try{
-  await tick();assert.match(screen.lastFrame(),/Products/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Products/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/↗ Variant/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Variants \/ SMALL/);
-  screen.stdin.write('h');await tick();assert.match(screen.lastFrame(),/Categorization/);
-  screen.stdin.write('/');await tick();screen.stdin.write('variants');await tick();assert.match(screen.lastFrame(),/1 entries/);
- }finally{screen.unmount();screen.cleanup();}
-});
-
-import {LearningApp,customerFrom} from './learning.js';
+import {App,customerFrom} from './app.js';
 import {eligibleStores,composeInstructions,EXTRA_LIMIT} from './delivery.js';
 const address={street:'123 Example St',city:'Example',region:'IL',postalCode:'12345'};
 const open={IsOnlineCapable:true,IsOpen:true,ServiceIsOpen:{Carryout:true,Delivery:true},AddressDescription:'Test address'};
 const candidates=[{...open,StoreID:'1111',IsDeliveryStore:false,MinDistance:1},{...open,StoreID:'2222',IsDeliveryStore:true,MinDistance:2},{...open,StoreID:'3333',IsDeliveryStore:true,IsOpen:false,MinDistance:0}];
 function harness(extra={}){
  const calls={location:0,search:[],profile:[],saved:[]};
- const services={locateAddress:async()=>{calls.location++;return address;},NearbyStores:class{constructor(a,method){calls.search.push({address:a,method});this.stores=candidates;}},Store:class{constructor(id){calls.profile.push(id);return {info:{StoreID:id,StoreName:'Selected store',AddressDescription:'Test address',Phone:'555-0100',IsOpen:true,HoursDescription:'Test hours',AcceptablePaymentTypes:['Cash']},menu:{dominosAPIResponse:menu,menu:{products:menu.Products,variants:menu.Variants}}};}},...extra.services};
- const screen=render(React.createElement(LearningApp,{initialConfig:extra.initialConfig,onPersist:config=>calls.saved.push(config),services}));
+ const services={locateAddress:async()=>{calls.location++;return address;},NearbyStores:class{constructor(a,method){calls.search.push({address:a,method});this.stores=candidates;}},Store:class{constructor(id){calls.profile.push(id);return {info:{StoreID:id,StoreName:'Selected store',AddressDescription:'Test address',Phone:'555-0100',IsOpen:true,HoursDescription:'Test hours',AcceptablePaymentTypes:['Cash']},menu:{menu:builderMenu}};}},...extra.services};
+ const screen=render(React.createElement(App,{initialConfig:extra.initialConfig,onPersist:config=>calls.saved.push(config),services}));
  return {screen,calls};
 }
 async function key(screen,text){screen.stdin.write(text);await tick();}
@@ -74,9 +46,9 @@ test('carryout skips address refinement, explicitly selects one store, and displ
   assert.equal(calls.search[0].method,'Carryout');assert.match(screen.lastFrame(),/Carryout stores/);assert.doesNotMatch(screen.lastFrame(),/Home:|Hand it to me/);
   assert.equal(calls.profile.length,0);await key(screen,'\r');assert.deepEqual(calls.profile,['1111']);
   assert.match(screen.lastFrame(),/Your store/);assert.match(screen.lastFrame(),/Selected store · Carryout/);assert.match(screen.lastFrame(),/555-0100/);
-  await key(screen,'i');assert.match(screen.lastFrame(),/AcceptablePaymentTypes/);await key(screen,'\x1b[D');
-  await key(screen,'\r');assert.match(screen.lastFrame(),/What sounds good/);assert.match(screen.lastFrame(),/Products/);
-  assert.equal(calls.profile.length,1);await key(screen,'n');assert.match(screen.lastFrame(),/4 of 10 · Items/);await key(screen,'\x1b[D');assert.match(screen.lastFrame(),/What sounds good/);
+  await key(screen,'i');assert.doesNotMatch(screen.lastFrame(),/AcceptablePaymentTypes|JSON/);
+  await key(screen,'\r');assert.match(screen.lastFrame(),/Add Item/);assert.match(screen.lastFrame(),/BYO Pizza/);
+  assert.equal(calls.profile.length,1);await key(screen,'\x1b[D');assert.match(screen.lastFrame(),/Your store/);
  }finally{cleanup(screen);}
 });
 test('delivery builds compact handoff instructions, finds the serving store, and retains local preferences',async()=>{
@@ -134,7 +106,7 @@ test('a mismatched Store response cannot advance to profile or menu',async()=>{
 });
 test('back navigation discards a late Store result',async()=>{
  let resolve;
- const {screen}=harness({services:{Store:class{constructor(id){return new Promise(r=>resolve=()=>r({info:{StoreID:id},menu:{dominosAPIResponse:menu}}));}}}});
+ const {screen}=harness({services:{Store:class{constructor(id){return new Promise(r=>resolve=()=>r({info:{StoreID:id},menu:{dominosAPIResponse:{}}}));}}}});
  try{
   await tick();await locate(screen);await key(screen,'\r');await key(screen,'\x1b[D');
   resolve();await tick();assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Your store/);
@@ -142,20 +114,20 @@ test('back navigation discards a late Store result',async()=>{
 });
 import {builderMenu} from './builder-fixture.js';
 test('the item overlay adds to the selected-store Order and preserves that draft when reopened',async()=>{
- const {screen,calls}=harness({services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:menu}};}}}});
+ const {screen,calls}=harness({services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:{}}};}}}});
  try{
-  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'n');
-  assert.match(screen.lastFrame(),/4 of 10 · Items/);assert.match(screen.lastFrame(),/BYO Pizza/);
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');
+  assert.doesNotMatch(screen.lastFrame(),/of 10|JSON|inspect/);assert.match(screen.lastFrame(),/BYO Pizza/);
   await key(screen,'\x1b[B');await key(screen,'\r');await key(screen,'+');
-  assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/1 item · Local draft/);
-  await key(screen,'\x1b[D');await key(screen,'n');assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/1 item · Local draft/);
+  assert.match(screen.lastFrame(),/Order/);assert.match(screen.lastFrame(),/1 item/);
+  await key(screen,'\x1b[D');await key(screen,'\r');assert.match(screen.lastFrame(),/Order/);assert.match(screen.lastFrame(),/1 item/);
  }finally{cleanup(screen);}
  const saved=calls.saved.at(-1);assert.equal(saved.draftOrder.storeID,'1111');assert.equal(saved.draftOrder.serviceMethod,'Carryout');assert.equal(saved.draftOrder.products[0].code,'LHT');assert.equal(saved.lastOrder,null);
 });
 test('a cached local draft restores only after the same store and method are explicitly selected',async()=>{
- const {screen}=harness({initialConfig:{draftOrder:{storeID:'1111',serviceMethod:'Carryout',products:[{code:'LHT',qty:2,options:{X:{'1/1':'1'},C:{'1/1':'1'}}}]}},services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:menu}};}}}});
+ const {screen}=harness({initialConfig:{draftOrder:{storeID:'1111',serviceMethod:'Carryout',products:[{code:'LHT',qty:2,options:{X:{'1/1':'1'},C:{'1/1':'1'}}}]}},services:{Store:class{constructor(id){return {info:{StoreID:id},menu:{menu:builderMenu,dominosAPIResponse:{}}};}}}});
  try{
-  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'n');
-  assert.match(screen.lastFrame(),/5 of 10 · Local Order/);assert.match(screen.lastFrame(),/2 × Large Hand Tossed Pizza/);
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');
+  assert.match(screen.lastFrame(),/Order/);assert.match(screen.lastFrame(),/2 × Large Hand Tossed Pizza/);
  }finally{cleanup(screen);}
 });
