@@ -23,11 +23,11 @@ const lessons=[
 export function customerFrom(values){
     return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address(Object.fromEntries(fields.slice(4).map(([key])=>[key,values[key]||''])))});
 }
-export function LearningApp({initialStoreID='2801',services={NearbyStores,loadMenu}}){
+export function LearningApp({services={NearbyStores,loadMenu}}){
     const [step,setStep]=useState(0),[values,setValues]=useState({}),[field,setField]=useState(0);
     const [editing,setEditing]=useState(false),[buffer,setBuffer]=useState(''),[details,setDetails]=useState(false);
     const [status,setStatus]=useState(''),[busy,setBusy]=useState(false);
-    const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(0),[storeID,setStoreID]=useState(initialStoreID),[menu,setMenu]=useState(null);
+    const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(0),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
     const {exit}=useApp(),{stdout}=useStdout();
     const [size,setSize]=useState({columns:stdout.columns||80,rows:stdout.rows||30});
     useEffect(()=>{
@@ -40,12 +40,13 @@ export function LearningApp({initialStoreID='2801',services={NearbyStores,loadMe
     useInput((input,key)=>{
         if(editing){
             if(key.escape){setEditing(false);return;}
-            if(key.return){setValues(old=>({...old,[fields[field][0]]:buffer.trim()}));setEditing(false);return;}
+            if(key.return){setValues(old=>({...old,[fields[field][0]]:buffer.trim()}));if(field>=4){setStores(null);setStoreID(null);setMenu(null);}setEditing(false);return;}
             if(key.backspace||key.delete){setBuffer(old=>old.slice(0,-1));return;}
             if(input&&!key.ctrl&&!key.meta)setBuffer(old=>old+input.replace(/[\x00-\x1f\x7f]/g,''));return;
         }
         if(step===2&&menu)return;
         if(input==='q'){exit();return;}if(busy)return;
+        if(input==='n'&&step===1&&!storeID){setStatus('Search and select a store before continuing.');return;}
         if(input==='n'){setStep(old=>Math.min(9,old+1));setStatus('');return;}
         if(input==='b'){setStep(old=>Math.max(0,old-1));setStatus('');return;}
         if(step===0){
@@ -66,6 +67,7 @@ export function LearningApp({initialStoreID='2801',services={NearbyStores,loadMe
             }
             if(key.return&&eligible[storeIndex]){setStoreID(String(eligible[storeIndex].StoreID));setMenu(null);setStep(2);setStatus('');}
         }
+        if(step===2&&input==='l'&&!storeID){setStatus('Go back and select a store first.');return;}
         if(step===2&&input==='l')request(async()=>{setMenu(await services.loadMenu(storeID));setStatus('');});
     });
     const width=Math.max(16,Math.min(68,size.columns-4));
@@ -93,14 +95,14 @@ export function LearningApp({initialStoreID='2801',services={NearbyStores,loadMe
     }else if(step===1){
         const capacity=Math.max(1,contentHeight-5),start=Math.floor(storeIndex/capacity)*capacity;
         body=h(Box,{flexDirection:'column'},
-            h(Text,null,`Store ${storeID} · menu exploration target`),
+            h(Text,null,storeID?`Selected store ${storeID}`:'No store selected'),
             h(Text,null,'Delivery coverage is confirmed by an address search.'),
             h(Box,{marginTop:1,flexDirection:'column'},
                 ...eligible.slice(start,start+capacity).map((store,i)=>h(Text,{key:store.StoreID,color:start+i===storeIndex?palette.red:palette.text,wrap:'truncate'},`${start+i===storeIndex?'›':' '} 🏪 ${store.StoreID} · ${store.AddressDescription.replace(/\n/g,', ')}`)),
                 stores&&!eligible.length?h(Text,null,'No nearby stores are open for online delivery.'):null),
             h(Box,{marginTop:1},h(Text,{color:palette.red},'s  Find delivery stores →')));
     }else if(step===2){
-        body=menu?h(Explorer,{menu,storeID,embedded:true,height:contentHeight,onBack:()=>setStep(1),onNext:()=>setStep(3)}):h(Box,{flexDirection:'column'},h(Text,null,`Browse the live menu from store ${storeID}.`),h(Box,{marginTop:1},h(Text,{color:palette.red},'l  Load menu →')));
+        body=menu?h(Explorer,{menu,storeID,embedded:true,height:contentHeight,onBack:()=>setStep(1),onNext:()=>setStep(3)}):h(Box,{flexDirection:'column'},h(Text,null,storeID?`Browse the live menu from store ${storeID}.`:'Select a store before loading its menu.'),storeID?h(Box,{marginTop:1},h(Text,{color:palette.red},'l  Load menu →')):null);
     }else{
         const icons=['','','','🍕','🧾','','','💳','🍕','🛵'];
         body=h(Box,{flexDirection:'column'},

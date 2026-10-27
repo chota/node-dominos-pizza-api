@@ -47,10 +47,21 @@ test('customer form groups names, keeps edits across steps, and hides optional a
  }finally{screen.unmount();screen.cleanup();}
 });
 test('customer-first journey retains menu navigation and continues to Items',async()=>{
- const screen=render(React.createElement(LearningApp,{services:{loadMenu:async()=>menu}}));
+ let loadedStore;
+ const screen=render(React.createElement(LearningApp,{services:{
+  NearbyStores:class {constructor(){this.stores=[{StoreID:'1234',IsOnlineCapable:true,IsDeliveryStore:true,IsOpen:true,ServiceIsOpen:{Delivery:true},AddressDescription:'Test store'}];}},
+  loadMenu:async id=>{loadedStore=id;return menu;}
+ }}));
  try{
-  await tick();screen.stdin.write('n');await tick();screen.stdin.write('n');await tick();
-  screen.stdin.write('l');await tick();await tick();assert.match(screen.lastFrame(),/3 of 10 · Menu/);
+  await tick();
+  for(let i=0;i<4;i++){screen.stdin.write('\x1b[B');await tick();}
+  screen.stdin.write('\r');await tick();screen.stdin.write('123 Example St');await tick();screen.stdin.write('\r');await tick();
+  for(let i=0;i<3;i++){screen.stdin.write('\x1b[B');await tick();}
+  screen.stdin.write('\r');await tick();screen.stdin.write('12345');await tick();screen.stdin.write('\r');await tick();
+  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/No store selected/);
+  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/2 of 10/);
+  screen.stdin.write('s');await tick();screen.stdin.write('\r');await tick();
+  screen.stdin.write('l');await tick();await tick();assert.match(screen.lastFrame(),/3 of 10 · Menu/);assert.equal(loadedStore,'1234');
   assert.match(screen.lastFrame(),/Products/);
   screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Products/);
   screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/4 of 10 · Items/);

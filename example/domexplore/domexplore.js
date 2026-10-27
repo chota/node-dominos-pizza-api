@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import React from 'react';
 
-if(!process.stdin.isTTY || !process.stdout.isTTY){
+if(process.argv.length>2){
+    console.error('Usage: domexplore (choose a store inside the app)');
+    process.exitCode=1;
+}else if(!process.stdin.isTTY || !process.stdout.isTTY){
     console.error('Run domexplore in an interactive terminal.');
     process.exitCode=1;
 }else{
@@ -13,7 +16,7 @@ if(!process.stdin.isTTY || !process.stdout.isTTY){
     const stop=()=>app?.unmount();
     try{
         process.once('SIGTERM',stop);process.once('SIGINT',stop);
-        app=render(React.createElement(LearningApp,{initialStoreID:process.argv[2]||'2801'}),{alternateScreen:true});
+        app=render(React.createElement(LearningApp),{alternateScreen:true});
         await app.waitUntilExit();
     }catch(error){console.error(error.message);process.exitCode=1;}
     finally{
