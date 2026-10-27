@@ -32,39 +32,70 @@ test('keyboard opens products, follows a variant, and returns home',async()=>{
 });
 
 import {LearningApp} from './learning.js';
-test('customer form groups names, keeps edits across steps, and hides optional address fields',async()=>{
- const screen=render(React.createElement(LearningApp));
+const address={street:'123 Example St',city:'Example',region:'IL',postalCode:'12345'};
+async function enter(screen,value){screen.stdin.write(value);await tick();screen.stdin.write('\r');await tick();}
+async function contact(screen){for(const value of ['Alex','Example','3145550123','alex@example.com'])await enter(screen,value);}
+test('autofocus, Return progression, separate address page, and persistence',async()=>{
+ const writes=[];let requests=0;
+ const screen=render(React.createElement(LearningApp,{onPersist:config=>writes.push(config),services:{locateAddress:async()=>{requests++;return address;}}}));
  try{
-  await tick();assert.match(screen.lastFrame(),/1 of 10 · Customer\/address/);
-  assert.match(screen.lastFrame(),/Who…\?/);assert.match(screen.lastFrame(),/First name:.*Family name:/);
-  assert.doesNotMatch(screen.lastFrame(),/Unit number:/);
-  screen.stdin.write('\r');await tick();screen.stdin.write('Alex');await tick();screen.stdin.write('\r');await tick();
-  assert.match(screen.lastFrame(),/First name: Alex/);
+  await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Street:/);
+  await contact(screen);await tick();
+  assert.match(screen.lastFrame(),/Where…\?/);assert.doesNotMatch(screen.lastFrame(),/First name:/);
+  assert.match(screen.lastFrame(),/Street: 123 Example St/);assert.equal(requests,1);
+  for(let i=0;i<4;i++){screen.stdin.write('\r');await tick();}
   screen.stdin.write('d');await tick();assert.match(screen.lastFrame(),/Unit number:/);
-  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
-  screen.stdin.write('b');await tick();assert.match(screen.lastFrame(),/First name: Alex/);
-  assert.doesNotMatch(screen.lastFrame(),/ADVANCED|API responses/);
+  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
+  screen.stdin.write('b');await tick();assert.match(screen.lastFrame(),/Where…\?/);
+  screen.stdin.write('\x1b');await tick();screen.stdin.write('b');await tick();assert.match(screen.lastFrame(),/Who…\?/);
+  assert.match(screen.lastFrame(),/First name: Alex/);
+ }finally{screen.unmount();screen.cleanup();}
+ assert.equal(writes.at(-1).customer.email,'alex@example.com');assert.equal(writes.at(-1).address.street,address.street);
+});
+test('a late location result cannot overwrite an address the user is typing',async()=>{
+ let resolve;
+ const screen=render(React.createElement(LearningApp,{services:{locateAddress:()=>new Promise(r=>resolve=r)}}));
+ try{
+  await tick();await contact(screen);
+  screen.stdin.write('My chosen address');await tick();resolve(address);await tick();
+  assert.match(screen.lastFrame(),/Street: My chosen address/);assert.match(screen.lastFrame(),/Postal code: 12345/);
  }finally{screen.unmount();screen.cleanup();}
 });
-test('customer-first journey retains menu navigation and continues to Items',async()=>{
+test('cached values restore without assuming a store; first typing replaces the focused value',async()=>{
+ let locations=0;const writes=[];
+ const initialConfig={customer:{firstName:'Remembered'},address,lastOrder:{orderID:'old-order',storeID:'9999',products:[]}};
+ const screen=render(React.createElement(LearningApp,{initialConfig,onPersist:config=>writes.push(config),services:{locateAddress:async()=>{locations++;return address;}}}));
+ try{
+  await tick();assert.match(screen.lastFrame(),/Remembered▏/);
+  screen.stdin.write('Alex');await tick();screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();
+  assert.match(screen.lastFrame(),/Where…\?/);assert.equal(locations,0);
+  screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/No store selected/);
+ }finally{screen.unmount();screen.cleanup();}
+ assert.equal(writes.at(-1).customer.firstName,'Alex');assert.equal(writes.at(-1).lastOrder.orderID,'old-order');
+});
+test('customer-first journey discovers a store, loads its menu, then continues to Items',async()=>{
  let loadedStore;
- const screen=render(React.createElement(LearningApp,{services:{
+ const screen=render(React.createElement(LearningApp,{initialConfig:{address},services:{
   NearbyStores:class {constructor(){this.stores=[{StoreID:'1234',IsOnlineCapable:true,IsDeliveryStore:true,IsOpen:true,ServiceIsOpen:{Delivery:true},AddressDescription:'Test store'}];}},
   loadMenu:async id=>{loadedStore=id;return menu;}
  }}));
  try{
-  await tick();
-  for(let i=0;i<4;i++){screen.stdin.write('\x1b[B');await tick();}
-  screen.stdin.write('\r');await tick();screen.stdin.write('123 Example St');await tick();screen.stdin.write('\r');await tick();
-  for(let i=0;i<3;i++){screen.stdin.write('\x1b[B');await tick();}
-  screen.stdin.write('\r');await tick();screen.stdin.write('12345');await tick();screen.stdin.write('\r');await tick();
-  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/No store selected/);
+  await tick();await contact(screen);
+  for(let i=0;i<5;i++){screen.stdin.write('\r');await tick();}
+  assert.match(screen.lastFrame(),/2 of 10 · Store/);
   screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/2 of 10/);
   screen.stdin.write('s');await tick();screen.stdin.write('\r');await tick();
   screen.stdin.write('l');await tick();await tick();assert.match(screen.lastFrame(),/3 of 10 · Menu/);assert.equal(loadedStore,'1234');
-  assert.match(screen.lastFrame(),/Products/);
   screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Products/);
   screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/4 of 10 · Items/);
   assert.match(screen.lastFrame(),/Items → Local Order → Validate → Price → Items/);
+ }finally{screen.unmount();screen.cleanup();}
+});
+test('location denial leaves manual address entry usable',async()=>{
+ const screen=render(React.createElement(LearningApp,{services:{locateAddress:async()=>{throw Error('Location access denied.');}}}));
+ try{
+  await tick();await contact(screen);await tick();assert.match(screen.lastFrame(),/Location access denied/);
+  screen.stdin.write('123 Manual St');await tick();assert.match(screen.lastFrame(),/Street: 123 Manual St/);
+  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/City: ▏/);
  }finally{screen.unmount();screen.cleanup();}
 });

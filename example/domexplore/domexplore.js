@@ -11,12 +11,15 @@ if(process.argv.length>2){
     // The requested fixed light appearance must not inherit a dark terminal theme.
     delete process.env.NO_COLOR;
     process.env.FORCE_COLOR='3';
-    const [{render},{LearningApp}]=await Promise.all([import('ink'),import('./learning.js')]);
+    const [{render},{LearningApp},{loadConfig,saveConfig}]=await Promise.all([import('ink'),import('./learning.js'),import('./config.js')]);
     let app;
     const stop=()=>app?.unmount();
     try{
         process.once('SIGTERM',stop);process.once('SIGINT',stop);
-        app=render(React.createElement(LearningApp),{alternateScreen:true});
+        const initialConfig=loadConfig();
+        let initialNotice='';
+        try{saveConfig(initialConfig);}catch(error){initialNotice=`Could not save settings: ${error.message}`;}
+        app=render(React.createElement(LearningApp,{initialConfig,onPersist:saveConfig,initialNotice}),{alternateScreen:true});
         await app.waitUntilExit();
     }catch(error){console.error(error.message);process.exitCode=1;}
     finally{
