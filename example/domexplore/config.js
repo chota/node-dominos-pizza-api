@@ -26,7 +26,7 @@ export function orderSummary(order){
     };
 }
 export function cleanConfig(config={}){
-    return {version:1,payment:strings(config.payment,['number','expiration','postalCode']),customer:strings(config.customer,contactKeys),address:{...strings(config.address,addressKeys),...deliveryPreferences(config.address),deliveryInstructions:composeInstructions(config.address)},pendingOrder:config.pendingOrder?strings(config.pendingOrder,['id','storeID','serviceMethod','createdAt','orderID']):null,lastOrder:orderSummary(config.lastOrder),draftOrder:config.draftOrder?orderSummary(config.draftOrder):null};
+    return {version:1,lastStoreID:/^\d+$/.test(String(config.lastStoreID||''))?String(config.lastStoreID):'',payment:strings(config.payment,['number','expiration','postalCode']),customer:strings(config.customer,contactKeys),address:{...strings(config.address,addressKeys),...deliveryPreferences(config.address),deliveryInstructions:composeInstructions(config.address)},pendingOrder:config.pendingOrder?strings(config.pendingOrder,['id','storeID','serviceMethod','createdAt','orderID']):null,lastOrder:orderSummary(config.lastOrder),draftOrder:config.draftOrder?orderSummary(config.draftOrder):null};
 }
 export function loadConfig(path=configPath){
     try{

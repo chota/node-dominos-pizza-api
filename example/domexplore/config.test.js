@@ -46,3 +46,8 @@ test('explicit payment cache survives edits and saves but never retains security
   const config=loadConfig(path);assert.deepEqual(config.payment,{number:'4111111111111111',expiration:'1230',postalCode:'12345'});saveConfig(configWithValues(config,{firstName:'Alex'}),path);assert.deepEqual(loadConfig(path).payment,config.payment);assert.doesNotMatch(readFileSync(path,'utf8'),/987|securityCode|private-token/);assert.equal(statSync(path).mode&0o777,0o600);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('previous store ID survives config saves and contact edits',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'domexplore-config-')),path=join(dir,'config');
+ try{saveConfig({lastStoreID:'2801'},path);const loaded=loadConfig(path);assert.equal(loaded.lastStoreID,'2801');saveConfig(configWithValues(loaded,{firstName:'Alex'}),path);assert.equal(loadConfig(path).lastStoreID,'2801');}
+ finally{rmSync(dir,{recursive:true,force:true});}
+});

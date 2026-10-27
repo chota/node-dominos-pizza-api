@@ -24,7 +24,7 @@ The root dependencies supply the real Customer, Address, NearbyStores and Store 
 ## Ordering flow
 
 1. **Who…?** First Name is focused on launch. Return advances through Family Name, Phone and Email.
-2. **Carryout or delivery?** Two vertical rows appear before any location or address screen. Up selects Carryout; Down selects Delivery; Enter commits the highlighted choice (`c`/`d` also changes the highlight). Left goes Back and Right does not change the choice. No service method or store is assumed from history.
+2. **Carryout or delivery?** Two vertical rows appear before any location or address screen. Up selects Carryout; Down selects Delivery; Enter commits the highlighted choice (`c`/`d` also changes the highlight). Left goes Back and Right does not change the choice. No service method is assumed from history.
 3. **Use my location:** Enter attempts native location and reverse-geocoding after the service choice. No address fields appear beforehand. This action disappears after the attempt and does not reappear when going back within the session. Success is silent; failures are displayed. The selected service determines whether discovery starts or the delivery-address form opens.
 4. **Carryout:** immediately search nearby open online carryout stores. Delivery address, apartment and handoff controls are skipped. If location failed, review/enter city, region and postal code before searching, including when cached values exist.
 5. **Delivery:** refine Street, City, Region and Postal Code. A blank line separates address fields from the compact delivery controls:
@@ -33,7 +33,7 @@ The root dependencies supply the real Customer, Address, NearbyStores and Store 
    - Don't Knock, Don't Ring Doorbell, Call upon arrival: Space toggles the focused checkbox; Enter/Tab accepts and moves on. Enter never silently enables an unchecked option.
    - Extra instructions: a single-line input with a visible 120-character counter and bound. This is a local UI limit, not a verified Domino’s API limit. Longer legacy cached text is preserved until edited and must fit before continuing.
    - These controls compose the wire `Address.DeliveryInstructions` string. UI-only choices do not become extra wire fields.
-6. **Store selection:** search results are filtered for the chosen service. Delivery shows stores identified as serving the refined address. Arrows highlight; Enter explicitly chooses a single store. Up can reach the search action to repeat the lookup.
+6. **Store selection:** search results are filtered for the chosen service. Delivery shows stores identified as serving the refined address. Arrows highlight; Enter explicitly chooses a single store. The previously chosen store is remembered in `lastStoreID` and highlighted in carryout results when it is still eligible; otherwise the closest eligible result is highlighted. Up can reach the search action to repeat the lookup.
 7. **Your store:** after explicitly choosing a store and service, load the package's Store profile and menu. Review its address, phone and hours, then press Enter to open Add Item directly.
 
 ## Item and local order builders

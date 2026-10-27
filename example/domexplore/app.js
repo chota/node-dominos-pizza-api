@@ -27,7 +27,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
     const [residenceChoice,setResidenceChoice]=useState(seed.residenceType||'House'),[handoffChoice,setHandoffChoice]=useState(seed.handoff||'hand');
     const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null);
     const [activeBuilder,setActiveBuilder]=useState(null);
-    const ledger=useRef({payment:initialConfig.payment||{},pendingOrder:initialConfig.pendingOrder||null,lastOrder:initialConfig.lastOrder||null});
+    const ledger=useRef({lastStoreID:initialConfig.lastStoreID||'',payment:initialConfig.payment||{},pendingOrder:initialConfig.pendingOrder||null,lastOrder:initialConfig.lastOrder||null});
     const draftCache=useRef(new Map()),draftSnapshot=useRef(initialConfig.draftOrder||null);
     const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
     const latest=useRef(seed),persist=useRef(onPersist),generation=useRef(0),controller=useRef(null),mounted=useRef(true);
@@ -80,7 +80,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
         setPage('stores');setStoreIndex(-1);setStores([]);setSelectedID(null);setSelectedStore(null);
         run(()=>new api.NearbyStores(customerFrom(latest.current).address,serviceMethod),result=>{
             if(!Array.isArray(result.stores))throw Error('Store lookup returned no store list.');
-            const choices=eligibleStores(result.stores,serviceMethod);setStores(choices);setStoreIndex(choices.length?0:-1);
+            const choices=eligibleStores(result.stores,serviceMethod);setStores(choices);const previous=serviceMethod==='Carryout'?choices.findIndex(store=>String(store.StoreID)===ledger.current.lastStoreID):-1;setStoreIndex(choices.length?Math.max(0,previous):-1);
             if(!choices.length)setStatus(`No nearby stores are currently open for online ${serviceMethod.toLowerCase()}.`);
         });
     };
@@ -111,6 +111,7 @@ export function App({initialConfig=empty,onPersist=()=>{},initialNotice='',servi
             if(!result?.info||String(result.info.StoreID)!==id)throw Error('The loaded store does not match the selected store.');
             if(result.info.Status===-1)throw Error('The store profile request failed.');
             setSelectedStore(result);setPage('profile');focusField('continue');
+            try{saveLedger({...ledger.current,lastStoreID:id});}catch(error){setStatus(`Could not save store preference: ${error.message}`);}
         });
     };
     const openBuilder=()=>{

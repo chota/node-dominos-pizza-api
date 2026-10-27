@@ -135,3 +135,17 @@ test('a cached local draft restores only after the same store and method are exp
   assert.match(screen.lastFrame(),/Order/);assert.match(screen.lastFrame(),/2 × Large Hand Tossed Pizza/);
  }finally{cleanup(screen);}
 });
+test('previous store is highlighted in eligible carryout results and requires explicit confirmation',async()=>{
+ const {screen,calls}=harness({initialConfig:{lastStoreID:'2222'}});
+ try{
+  await tick();await locate(screen);assert.match(screen.lastFrame(),/› 🏪 2222/);assert.equal(calls.profile.length,0);
+  await key(screen,'\r');assert.deepEqual(calls.profile,['2222']);
+ }finally{cleanup(screen);}
+ assert.equal(calls.saved.at(-1).lastStoreID,'2222');
+});
+test('an unavailable remembered store falls back to the closest eligible carryout store',async()=>{
+ const {screen,calls}=harness({initialConfig:{lastStoreID:'3333'}});
+ try{await tick();await locate(screen);assert.match(screen.lastFrame(),/› 🏪 1111/);assert.equal(calls.profile.length,0);await key(screen,'\r');assert.deepEqual(calls.profile,['1111']);}
+ finally{cleanup(screen);}
+ assert.equal(calls.saved.at(-1).lastStoreID,'1111');
+});
