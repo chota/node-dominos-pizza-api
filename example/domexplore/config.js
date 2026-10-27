@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {readFileSync,lstatSync,openSync,writeFileSync,fsyncSync,closeSync,renameSync,unlinkSync} from 'node:fs';
 export const configPath=join(homedir(),'.domexplore.conf');
 export const contactKeys=['firstName','lastName','phone','email'];
-export const addressKeys=['street','city','region','postalCode','unitType','unitNumber','deliveryInstructions'];
+export const addressKeys=['street','city','region','postalCode','unitType','unitNumber','deliveryInstructions','residenceType'];
 const strings=(value,keys)=>Object.fromEntries(keys.filter(key=>typeof value?.[key]==='string').map(key=>[key,value[key]]));
 // Retain order history without retaining payment credentials or arbitrary responses.
 export function orderSummary(order){

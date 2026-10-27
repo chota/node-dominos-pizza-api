@@ -8,7 +8,7 @@ import {locateAddress} from './location.js';
 import {configWithValues} from './config.js';
 const emptyConfig=Object.freeze({});
 const h=React.createElement;
-const fields=[['firstName','First name'],['lastName','Family name'],['phone','Phone'],['email','Email'],['street','Street'],['city','City'],['region','State / region'],['postalCode','Postal code'],['unitType','Unit type'],['unitNumber','Unit number'],['deliveryInstructions','Delivery instructions']];
+const fields=[['firstName','First name'],['lastName','Family name'],['phone','Phone'],['email','Email'],['street','Street'],['city','City'],['region','State / region'],['postalCode','Postal code'],['residenceType','House or apartment?'],['unitNumber','Apartment number'],['deliveryInstructions','Delivery instructions']];
 const steps=['Customer/address','Store','Menu','Items','Local Order','Validate','Price','Payment','Place','Track'];
 const headings=['Who…?','Where from…?','What sounds good…?','Add an item','Review your order','Validate your order','Price your order','How will you pay…?','Place your order','Follow your order'];
 const lessons=[
@@ -24,13 +24,13 @@ const lessons=[
     'Tracking · Retrieve progress separately from the order basket.'
 ];
 export function customerFrom(values){
-    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address(Object.fromEntries(fields.slice(4).map(([key])=>[key,values[key]||''])))});
+    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address({...Object.fromEntries(fields.slice(4).filter(([key])=>key!=='residenceType').map(([key])=>[key,values[key]||''])),unitType:values.residenceType==='Apartment'?'APT':''})});
 }
 export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialNotice='',services={NearbyStores,loadMenu,locateAddress}}){
     const initialValues={...initialConfig.customer,...initialConfig.address};
     const [step,setStep]=useState(0),[part,setPart]=useState('who'),[values,setValues]=useState(initialValues),[field,setField]=useState(0);
-    const [editing,setEditing]=useState(true),[replace,setReplace]=useState(true),[details,setDetails]=useState(false);
-    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false),[locating,setLocating]=useState(false);
+    const [editing,setEditing]=useState(true),[replace,setReplace]=useState(true),[residenceChoice,setResidenceChoice]=useState(initialValues.residenceType||'House');
+    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
     const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(-1),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
     const locationRequest=useRef(null),didLocate=useRef(false),revisions=useRef({}),latest=useRef(initialValues),persist=useRef(onPersist);
     latest.current=values;persist.current=onPersist;
@@ -41,21 +41,29 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     };
     const editValue=(value)=>{
         const key=fields[field][0];revisions.current[key]=(revisions.current[key]||0)+1;
-        writeValues({...latest.current,[key]:value});setReplace(false);
+        writeValues({...latest.current,[key]:value});setReplace(false);setStatus('');
         if(field>=4){setStores(null);setStoreID(null);setMenu(null);}
     };
-    const focus=(index)=>{setField(index);setEditing(true);setReplace(true);};
-    const where=()=>{setPart('where');focus(4);setStatus('');};
+    const focus=(index)=>{setField(index);setEditing(index!==11&&index!==8);setReplace(true);};
+    const completeAddress=value=>Boolean(value.street?.trim()&&value.postalCode?.trim());
+    const addressFields=()=>[4,5,6,7,8,...(latest.current.residenceType==='Apartment'?[9]:[]),10,11];
+    const continueAddress=()=>{
+        if(!completeAddress(latest.current)){focus(4);setStatus('Enter your street and postal code.');return;}
+        if(!latest.current.residenceType){focus(8);return;}
+        if(latest.current.residenceType==='Apartment'&&!latest.current.unitNumber?.trim()){focus(9);setStatus('Enter an apartment number.');return;}
+        setStoreIndex(-1);setStep(1);setStatus('');
+    };
+    const where=()=>{setPart('where');focus(completeAddress(latest.current)?11:4);setStatus('');};
     const previous=()=>{
         setStatus('');
         if(step===0&&part==='where'){setPart('who');focus(0);}
-        else if(step===1){setStep(0);setPart('where');focus(4);}
+        else if(step===1){setStep(0);setPart('where');focus(completeAddress(latest.current)?11:4);}
         else setStep(old=>Math.max(0,old-1));
     };
     const useLocation=async(force=false)=>{
         if(locationRequest.current)return;
         const controller=new AbortController();locationRequest.current=controller;
-        const before={...revisions.current};setLocating(true);setStatus('Finding your address… Allow location access if macOS asks.');
+        const before={...revisions.current};setStatus('');
         try{
             const address=await (services.locateAddress||locateAddress)({signal:controller.signal});
             if(controller.signal.aborted)return;
@@ -64,9 +72,11 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
                 if(typeof address[key]==='string'&&address[key]&&(revisions.current[key]||0)===(before[key]||0)&&(force||!next[key]))next[key]=address[key];
             }
             writeValues(next);setStores(null);setStoreID(null);setMenu(null);
-            setStatus('Location filled. Review your delivery address.');
+            setStatus('');
+            const untouched=fields.slice(4).every(([key])=>(revisions.current[key]||0)===(before[key]||0));
+            if(completeAddress(next)&&untouched)focus(11);
         }catch(error){if(!controller.signal.aborted)setStatus(error.message);}
-        finally{if(!controller.signal.aborted)setLocating(false);locationRequest.current=null;}
+        finally{locationRequest.current=null;}
     };
     useEffect(()=>{
         const resize=()=>setSize({columns:stdout.columns||80,rows:stdout.rows||30});
@@ -85,7 +95,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             didLocate.current=true;
             if(!latest.current.street||!latest.current.postalCode)void useLocation();
         }
-        if(step!==0||part!=='where'){locationRequest.current?.abort();setLocating(false);}
+        if(step!==0||part!=='where'){locationRequest.current?.abort();}
     },[step,part]);
     const customer=customerFrom(values);
     const eligible=(stores?.stores||[]).filter(s=>s.IsOnlineCapable&&s.IsDeliveryStore&&s.IsOpen&&s.ServiceIsOpen?.Delivery);
@@ -93,20 +103,30 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     useInput((input,key)=>{
         if(step===0&&part==='where'&&key.ctrl&&input==='l'){void useLocation(true);return;}
         if(key.leftArrow){if(!(step===2&&menu))previous();return;}
+        if(step===0&&part==='where'&&field===8){
+            if(key.rightArrow||input===' '){setResidenceChoice(old=>old==='House'?'Apartment':'House');return;}
+            if(input==='h'){setResidenceChoice('House');return;}
+            if(input==='a'){setResidenceChoice('Apartment');return;}
+            if(key.tab&&key.shift){focus(7);return;}
+            if(key.return||key.tab){
+                const next={...latest.current,residenceType:residenceChoice,unitType:residenceChoice==='Apartment'?'APT':'',unitNumber:residenceChoice==='House'?'':latest.current.unitNumber||''};
+                revisions.current.residenceType=(revisions.current.residenceType||0)+1;
+                writeValues(next);setStores(null);setStoreID(null);setMenu(null);setStatus('');focus(residenceChoice==='Apartment'?9:10);return;
+            }
+        }
         if(step===0&&editing){
             if(key.escape){setEditing(false);return;}
             if(key.ctrl&&input==='u'){editValue('');return;}
-            const first=part==='who'?0:4,last=part==='who'?3:details?10:7;
+            const sequence=part==='who'?[0,1,2,3]:addressFields(),position=sequence.indexOf(field);
             if(key.return||key.tab){
                 writeValues({...latest.current,[fields[field][0]]:(latest.current[fields[field][0]]||'').trim()});
-                if(key.shift&&key.tab){focus(Math.max(first,field-1));return;}
-                if(field<last)focus(field+1);
-                else if(part==='who')where();
-                else setEditing(false);
+                if(key.shift&&key.tab){focus(sequence[Math.max(0,position-1)]);return;}
+                if(part==='who'&&field===3)where();
+                else focus(sequence[Math.min(sequence.length-1,position+1)]);
                 return;
             }
-            if(key.upArrow){focus(Math.max(first,field-1));return;}
-            if(key.downArrow){focus(Math.min(last,field+1));return;}
+            if(key.upArrow){focus(sequence[Math.max(0,position-1)]);return;}
+            if(key.downArrow){focus(sequence[Math.min(sequence.length-1,position+1)]);return;}
             if(key.backspace||key.delete){editValue((latest.current[fields[field][0]]||'').slice(0,-1));return;}
             if(input&&!key.ctrl&&!key.meta)editValue((replace?'':latest.current[fields[field][0]]||'')+input.replace(/[\x00-\x1f\x7f]/g,''));
             return;
@@ -115,14 +135,14 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         if(input==='q'){exit();return;}if(busy)return;
         if(key.backspace||key.delete){previous();return;}
         if((input==='n'||(key.return&&step===0))&&step===0){
-            if(part==='who')where();else{setStoreIndex(-1);setStep(1);setStatus('');}return;
+            if(part==='who')where();else if(field===8)return;else continueAddress();return;
         }
         if(input==='n'&&step===1&&!storeID){setStatus('Search and select a store before continuing.');return;}
         if(input==='n'){setStep(old=>Math.min(9,old+1));setStatus('');return;}
         if(step===0){
-            if(key.upArrow)focus(Math.max(part==='who'?0:4,field-1));
-            if(key.downArrow)focus(Math.min(part==='who'?3:details?10:7,field+1));
-            if(input==='d'&&part==='where'){setDetails(old=>!old);if(details&&field>7)setField(7);}
+            const sequence=part==='who'?[0,1,2,3]:addressFields(),position=sequence.indexOf(field);
+            if(key.upArrow)focus(sequence[Math.max(0,position-1)]);
+            if(key.downArrow)focus(sequence[Math.min(sequence.length-1,position+1)]);
         }
         if(step===1){
             if(key.upArrow)setStoreIndex(old=>Math.max(-1,old-1));
@@ -140,25 +160,25 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     const height=Math.max(8,size.rows),contentHeight=Math.max(4,height-6);
     const row=(indexes)=>h(Box,{key:indexes.join('-'),flexDirection:width>=44?'row':'column'},...indexes.map(i=>{
         const [key,label]=fields[i],selected=field===i;
+        if(i===8)return h(Box,{key,flexDirection:'column'},h(Text,null,'House or apartment?'),h(Text,{color:selected?palette.red:palette.text},`${selected?'› ':''}${(selected?residenceChoice:values.residenceType)==='House'?'[House]':'House'}   ${(selected?residenceChoice:values.residenceType)==='Apartment'?'[Apartment]':'Apartment'}`));
         return h(Box,{key,width:width>=44?`${100/indexes.length}%`:'100%'},
             h(Text,{color:selected?palette.red:palette.text,wrap:'truncate'},`${selected?'›':' '} ${label}: ${editing&&selected?(values[key]||'')+'▏':values[key]||'________'}`));
     }));
     let body;
     if(step===0){
-        const rows=part==='who'?[{indexes:[0,1]},{indexes:[2]},{indexes:[3]}]:[{indexes:[4]},{indexes:[5,6]},{indexes:[7]}];
-        if(part==='where'&&details)rows.push({indexes:[8,9]},{indexes:[10]});
-        const focused=rows.findIndex(r=>r.indexes?.includes(field));
+        const rows=part==='who'?[{indexes:[0,1]},{indexes:[2]},{indexes:[3]}]:[{indexes:[4]},{indexes:[5,6]},{indexes:[7]},{indexes:[8]},...(values.residenceType==='Apartment'?[{indexes:[9]}]:[]),{indexes:[10]}];
+        const focused=field===11?rows.length-1:rows.findIndex(r=>r.indexes?.includes(field));
         const capacity=Math.max(2,contentHeight-5);
-        const cost=r=>width<44&&r.indexes?r.indexes.length:1;
+        const cost=r=>r.indexes?.includes(8)?2:width<44&&r.indexes?r.indexes.length:1;
         let start=0;
         while(start<focused&&rows.slice(start,focused+1).reduce((sum,r)=>sum+cost(r),0)>capacity)start++;
         let used=0;
         const visible=[];
         for(const r of rows.slice(start)){if(used+cost(r)>capacity)break;visible.push(r);used+=cost(r);}
         body=h(Box,{flexDirection:'column'},
-            part==='where'?h(Text,{color:palette.red},locating?'📍 Finding location…':'📍 Ctrl+L · Use my location'):null,
+            part==='where'?h(Text,{color:palette.red},'📍 Use my location · Ctrl+L'):null,
             ...visible.map(r=>r.heading?h(Text,{key:'where',bold:true,color:palette.red},r.heading):row(r.indexes)),
-            part==='where'?h(Box,{marginTop:1},h(Text,null,editing?'Enter next · ↑↓ move · Ctrl+U clear · Esc navigation':`Enter continue · ↑↓ edit · d ${details?'fewer':'address'} details`)):null);
+            null);
     }else if(step===1){
         const capacity=Math.max(1,contentHeight-5),start=Math.floor(Math.max(0,storeIndex)/capacity)*capacity;
         body=h(Box,{flexDirection:'column'},
@@ -189,5 +209,5 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||(step===0?'Saved locally in ~/.domexplore.conf':lessons[step])),
             h(Box,{marginTop:1,justifyContent:'space-between'},
                 h(Text,null,step||part==='where'?'←  Back':'Ctrl+C  Quit'),
-                h(Text,{color:palette.red,bold:true},step===0&&editing?'Enter  Next →':step===0?'Enter  Continue →':step<9?'n  Continue →':'q  Done'))));
+                h(Text,{color:palette.red,bold:true},step===0&&(editing||field===8)?'Enter  Next →':step===0?`${field===11?'› ':''}Continue →  Enter` :step<9?'n  Continue →':'q  Done'))));
 }
