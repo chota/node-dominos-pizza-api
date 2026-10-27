@@ -7,7 +7,7 @@ const describe = value => Array.isArray(value) ? `[${value.length} entries]`
     : value !== null && typeof value === 'object' ? `{${Object.keys(value).length} fields}${value.Name ? ' '+value.Name : ''}`
     : JSON.stringify(value);
 
-export function Explorer({menu, storeID, fetchedAt, active=true, embedded=false, height, onBack, onNext}) {
+export function Explorer({menu, storeID, fetchedAt, active=true, embedded=false, height, onBack, onNext, nextLabel="Continue"}) {
     const [path, setPath] = useState([]);
     const [selected, setSelected] = useState(0);
     const [query, setQuery] = useState('');
@@ -48,7 +48,7 @@ export function Explorer({menu, storeID, fetchedAt, active=true, embedded=false,
         h(Box,{flexDirection:'column',marginTop:1},
             ...rows.slice(start,start+capacity).map((row,i)=>h(Text,{key:row.key,color:start+i===index?palette.red:palette.text,wrap:'truncate'},`${start+i===index?'›':' '} ${foodEmoji(row.key,row.value)}${foodEmoji(row.key,row.value)?' ':''}${row.key}  ${describe(row.value)}`)),
             ...(!entries(value).length?[h(Text,{key:'value',wrap:'wrap'},describe(value))]:[])),
-        h(Box,{marginTop:1},h(Text,{color:palette.text},`↑↓ select · Enter/→ open · ← back · / filter · Esc cancel/back · h home · ${embedded?'n next lesson':'q quit'}`)),
+        h(Box,{marginTop:1},h(Text,{color:palette.text},`↑↓ select · Enter/→ open · ← back · / filter · Esc cancel/back · h home · ${embedded?'n '+nextLabel:'q quit'}`)),
         h(Text,{color:palette.text},rows.length?`${index+1}/${rows.length} · ↗ follows a product/variant reference`:'No matching entries')
     );
 }
