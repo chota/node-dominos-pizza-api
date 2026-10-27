@@ -30,9 +30,9 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     const initialValues={...initialConfig.customer,...initialConfig.address};
     const [step,setStep]=useState(0),[part,setPart]=useState('who'),[values,setValues]=useState(initialValues),[field,setField]=useState(0);
     const [editing,setEditing]=useState(true),[replace,setReplace]=useState(true),[residenceChoice,setResidenceChoice]=useState(initialValues.residenceType||'House');
-    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
+    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false),[locationAttempted,setLocationAttempted]=useState(false);
     const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(-1),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
-    const locationRequest=useRef(null),didLocate=useRef(false),revisions=useRef({}),latest=useRef(initialValues),persist=useRef(onPersist);
+    const locationRequest=useRef(null),revisions=useRef({}),latest=useRef(initialValues),persist=useRef(onPersist);
     latest.current=values;persist.current=onPersist;
     const {exit}=useApp(),{stdout}=useStdout();
     const [size,setSize]=useState({columns:stdout.columns||80,rows:stdout.rows||30});
@@ -44,20 +44,20 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         writeValues({...latest.current,[key]:value});setReplace(false);setStatus('');
         if(field>=4){setStores(null);setStoreID(null);setMenu(null);}
     };
-    const focus=(index)=>{setField(index);setEditing(index!==11&&index!==8);setReplace(true);};
+    const focus=(index)=>{setField(index);setEditing(![8,11,12].includes(index));setReplace(true);};
     const completeAddress=value=>Boolean(value.street?.trim()&&value.postalCode?.trim());
-    const addressFields=()=>[4,5,6,7,8,...(latest.current.residenceType==='Apartment'?[9]:[]),10,11];
+    const addressFields=()=>locationAttempted?[12,4,5,6,7,8,...(latest.current.residenceType==='Apartment'?[9]:[]),10,11]:[12];
     const continueAddress=()=>{
         if(!completeAddress(latest.current)){focus(4);setStatus('Enter your street and postal code.');return;}
         if(!latest.current.residenceType){focus(8);return;}
         if(latest.current.residenceType==='Apartment'&&!latest.current.unitNumber?.trim()){focus(9);setStatus('Enter an apartment number.');return;}
         setStoreIndex(-1);setStep(1);setStatus('');
     };
-    const where=()=>{setPart('where');focus(completeAddress(latest.current)?11:4);setStatus('');};
+    const where=()=>{setPart('where');setLocationAttempted(false);focus(12);setStatus('');};
     const previous=()=>{
         setStatus('');
         if(step===0&&part==='where'){setPart('who');focus(0);}
-        else if(step===1){setStep(0);setPart('where');focus(completeAddress(latest.current)?11:4);}
+        else if(step===1){setStep(0);setPart('where');focus(12);}
         else setStep(old=>Math.max(0,old-1));
     };
     const useLocation=async(force=false)=>{
@@ -71,11 +71,11 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             for(const key of ['street','city','region','postalCode']){
                 if(typeof address[key]==='string'&&address[key]&&(revisions.current[key]||0)===(before[key]||0)&&(force||!next[key]))next[key]=address[key];
             }
-            writeValues(next);setStores(null);setStoreID(null);setMenu(null);
+            writeValues(next);setStores(null);setStoreID(null);setMenu(null);setLocationAttempted(true);
             setStatus('');
             const untouched=fields.slice(4).every(([key])=>(revisions.current[key]||0)===(before[key]||0));
-            if(completeAddress(next)&&untouched)focus(11);
-        }catch(error){if(!controller.signal.aborted)setStatus(error.message);}
+            if(untouched)focus(completeAddress(next)?11:4);
+        }catch(error){if(!controller.signal.aborted){setLocationAttempted(true);setStatus(error.message);focus(4);}}
         finally{locationRequest.current=null;}
     };
     useEffect(()=>{
@@ -91,10 +91,6 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         try{persist.current(configWithValues(initialConfig,latest.current));}catch{}
     },[initialConfig]);
     useEffect(()=>{
-        if(step===0&&part==='where'&&!didLocate.current){
-            didLocate.current=true;
-            if(!latest.current.street||!latest.current.postalCode)void useLocation();
-        }
         if(step!==0||part!=='where'){locationRequest.current?.abort();}
     },[step,part]);
     const customer=customerFrom(values);
@@ -103,6 +99,12 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     useInput((input,key)=>{
         if(step===0&&part==='where'&&key.ctrl&&input==='l'){void useLocation(true);return;}
         if(key.leftArrow){if(!(step===2&&menu))previous();return;}
+        if(step===0&&part==='where'&&field===12&&(key.return||input===' ')){void useLocation(true);return;}
+        if(step===0&&part==='where'&&!locationAttempted){
+            if(key.backspace||key.delete)previous();
+            if(input==='q')exit();
+            return;
+        }
         if(step===0&&part==='where'&&field===8){
             if(key.rightArrow||input===' '){setResidenceChoice(old=>old==='House'?'Apartment':'House');return;}
             if(input==='h'){setResidenceChoice('House');return;}
@@ -166,7 +168,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
     }));
     let body;
     if(step===0){
-        const rows=part==='who'?[{indexes:[0,1]},{indexes:[2]},{indexes:[3]}]:[{indexes:[4]},{indexes:[5,6]},{indexes:[7]},{indexes:[8]},...(values.residenceType==='Apartment'?[{indexes:[9]}]:[]),{indexes:[10]}];
+        const rows=part==='who'?[{indexes:[0,1]},{indexes:[2]},{indexes:[3]}]:locationAttempted?[{indexes:[4]},{indexes:[5,6]},{indexes:[7]},{indexes:[8]},...(values.residenceType==='Apartment'?[{indexes:[9]}]:[]),{indexes:[10]}]:[];
         const focused=field===11?rows.length-1:rows.findIndex(r=>r.indexes?.includes(field));
         const capacity=Math.max(2,contentHeight-5);
         const cost=r=>r.indexes?.includes(8)?2:width<44&&r.indexes?r.indexes.length:1;
@@ -176,7 +178,7 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
         const visible=[];
         for(const r of rows.slice(start)){if(used+cost(r)>capacity)break;visible.push(r);used+=cost(r);}
         body=h(Box,{flexDirection:'column'},
-            part==='where'?h(Text,{color:palette.red},'📍 Use my location · Ctrl+L'):null,
+            part==='where'?h(Text,{color:field===12?palette.red:palette.text,bold:field===12},`${field===12?'› ':'  '}📍 Use my location${field===12?' →  Enter':' · Ctrl+L'}`):null,
             ...visible.map(r=>r.heading?h(Text,{key:'where',bold:true,color:palette.red},r.heading):row(r.indexes)),
             null);
     }else if(step===1){
@@ -209,5 +211,5 @@ export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialN
             h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||(step===0?'Saved locally in ~/.domexplore.conf':lessons[step])),
             h(Box,{marginTop:1,justifyContent:'space-between'},
                 h(Text,null,step||part==='where'?'←  Back':'Ctrl+C  Quit'),
-                h(Text,{color:palette.red,bold:true},step===0&&(editing||field===8)?'Enter  Next →':step===0?`${field===11?'› ':''}Continue →  Enter` :step<9?'n  Continue →':'q  Done'))));
+                h(Text,{color:palette.red,bold:true},step===0&&part==='where'&&field===12?'':step===0&&(editing||field===8)?'Enter  Next →':step===0?`${field===11?'› ':''}Continue →  Enter` :step<9?'n  Continue →':'q  Done'))));
 }
