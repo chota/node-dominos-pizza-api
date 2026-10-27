@@ -45,7 +45,7 @@ function harness(extra={}){
 async function key(screen,text){screen.stdin.write(text);await tick();}
 async function enter(screen,value){await key(screen,value);await key(screen,'\r');}
 async function contact(screen){for(const value of ['Alex','Example','3145550123','alex@example.com'])await enter(screen,value);}
-async function locate(screen){await contact(screen);assert.match(screen.lastFrame(),/Use my location/);assert.doesNotMatch(screen.lastFrame(),/Street:/);await key(screen,'\r');}
+async function locate(screen,method='Carryout'){await contact(screen);assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Use my location|Street:/);if(method==='Delivery')await key(screen,'\x1b[B');await key(screen,'\r');assert.match(screen.lastFrame(),/Use my location/);await key(screen,'\r');}
 function cleanup(screen){screen.unmount();screen.cleanup();}
 test('service-specific eligibility excludes closed stores and sorts nearby carryout stores',()=>{
  assert.deepEqual(eligibleStores(candidates,'Carryout').map(s=>s.StoreID),['1111','2222']);
@@ -53,19 +53,24 @@ test('service-specific eligibility excludes closed stores and sorts nearby carry
  assert.deepEqual(eligibleStores(candidates,null),[]);
  assert.deepEqual(eligibleStores([{...open,StoreID:'x',AllowCarryoutOrders:false}],'Carryout'),[]);
 });
-test('location is an explicit first action and disappears before service-method selection',async()=>{
+test('vertical service selection precedes location and Left remains Back',async()=>{
  const {screen,calls}=harness();
  try{
   await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Enter next/);
-  await contact(screen);assert.equal(calls.location,0);assert.match(screen.lastFrame(),/› 📍 Use my location/);
-  await key(screen,'\r');assert.equal(calls.location,1);assert.match(screen.lastFrame(),/Carryout or delivery/);
+  await contact(screen);assert.equal(calls.location,0);assert.match(screen.lastFrame(),/› 🥡 Carryout/);assert.doesNotMatch(screen.lastFrame(),/Use my location|Street:/);
+  await key(screen,'\x1b[B');assert.match(screen.lastFrame(),/› 🛵 Delivery/);
+  await key(screen,'\x1b[A');assert.match(screen.lastFrame(),/› 🥡 Carryout/);
+  await key(screen,'\x1b[C');assert.match(screen.lastFrame(),/› 🥡 Carryout/);
+  await key(screen,'\r');assert.match(screen.lastFrame(),/› 📍 Use my location/);assert.equal(calls.location,0);
+  await key(screen,'\x1b[D');assert.match(screen.lastFrame(),/Carryout or delivery/);
+  await key(screen,'\r');await key(screen,'\r');assert.equal(calls.location,1);assert.match(screen.lastFrame(),/Carryout stores/);
   assert.doesNotMatch(screen.lastFrame(),/Use my location|Street:|Location filled/);assert.equal(calls.profile.length,0);
  }finally{cleanup(screen);}
 });
 test('carryout skips address refinement, explicitly selects one store, and displays its Store object',async()=>{
  const {screen,calls}=harness();
  try{
-  await tick();await locate(screen);await key(screen,'\r');
+  await tick();await locate(screen);
   assert.equal(calls.search[0].method,'Carryout');assert.match(screen.lastFrame(),/Carryout stores/);assert.doesNotMatch(screen.lastFrame(),/Home:|Hand it to me/);
   assert.equal(calls.profile.length,0);await key(screen,'\r');assert.deepEqual(calls.profile,['1111']);
   assert.match(screen.lastFrame(),/Your store/);assert.match(screen.lastFrame(),/Selected store · Carryout/);assert.match(screen.lastFrame(),/555-0100/);
@@ -77,7 +82,7 @@ test('carryout skips address refinement, explicitly selects one store, and displ
 test('delivery builds compact handoff instructions, finds the serving store, and retains local preferences',async()=>{
  const {screen,calls}=harness();
  try{
-  await tick();await locate(screen);await key(screen,'\x1b[C');await key(screen,'\r');
+  await tick();await locate(screen,'Delivery');
   assert.match(screen.lastFrame(),/› Continue →  Enter/);assert.doesNotMatch(screen.lastFrame(),/Use my location/);
   assert.match(screen.lastFrame(),/Postal code: 12345\n\s*\n/);assert.match(screen.lastFrame(),/Don't Knock/);
   await key(screen,'\r');await key(screen,'\x1b[C');await key(screen,'\r');assert.match(screen.lastFrame(),/Apartment number: ▏/);
@@ -95,7 +100,7 @@ test('delivery builds compact handoff instructions, finds the serving store, and
 test('handoff is mandatory even with a cached house address',async()=>{
  const {screen,calls}=harness({initialConfig:{address:{...address,residenceType:'House'}}});
  try{
-  await tick();await locate(screen);await key(screen,'d');await key(screen,'\r');await key(screen,'\r');
+  await tick();await locate(screen,'Delivery');await key(screen,'\r');
   assert.match(screen.lastFrame(),/› \* \[Hand it to me\]/);assert.equal(calls.search.length,0);
   await key(screen,'\r');for(let i=0;i<3;i++)await key(screen,'\r');
   await key(screen,'\r');await key(screen,'\r');assert.equal(calls.search[0].method,'Delivery');
@@ -105,7 +110,7 @@ test('handoff is mandatory even with a cached house address',async()=>{
 test('extra instructions are bounded and legacy instructions are preserved on migration',async()=>{
  const {screen,calls}=harness({initialConfig:{address:{...address,residenceType:'House',handoff:'hand',deliveryInstructions:'Old extra'}}});
  try{
-  await tick();await locate(screen);await key(screen,'d');await key(screen,'\r');await key(screen,'\x1b[A');
+  await tick();await locate(screen,'Delivery');await key(screen,'\x1b[A');
   await key(screen,'x'.repeat(180));assert.match(screen.lastFrame(),/Extra 120\/120:/);
  }finally{cleanup(screen);}
  assert.equal(calls.saved.at(-1).address.additionalInstructions.length,EXTRA_LIMIT);
@@ -115,7 +120,7 @@ test('denied location permits a manual carryout search without delivery details'
  const {screen,calls}=harness({services:{locateAddress:async()=>{throw Error('Location access denied.');}}});
  try{
   await tick();await locate(screen);assert.match(screen.lastFrame(),/Location access denied/);
-  await key(screen,'\r');assert.match(screen.lastFrame(),/Near…/);assert.doesNotMatch(screen.lastFrame(),/Apartment|Don't Knock/);
+  assert.match(screen.lastFrame(),/Near…/);assert.doesNotMatch(screen.lastFrame(),/Apartment|Don't Knock/);
   await enter(screen,'Example');await enter(screen,'IL');await enter(screen,'12345');await key(screen,'\r');
   assert.equal(calls.search[0].method,'Carryout');assert.equal(calls.search[0].address.postalCode,'12345');
  }finally{cleanup(screen);}
@@ -123,7 +128,7 @@ test('denied location permits a manual carryout search without delivery details'
 test('a mismatched Store response cannot advance to profile or menu',async()=>{
  const {screen}=harness({services:{Store:class{constructor(){return {info:{StoreID:'wrong'}};}}}});
  try{
-  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');assert.match(screen.lastFrame(),/does not match/);
+  await tick();await locate(screen);await key(screen,'\r');assert.match(screen.lastFrame(),/does not match/);
   assert.doesNotMatch(screen.lastFrame(),/Your store|What sounds good/);
  }finally{cleanup(screen);}
 });
@@ -131,7 +136,7 @@ test('back navigation discards a late Store result',async()=>{
  let resolve;
  const {screen}=harness({services:{Store:class{constructor(id){return new Promise(r=>resolve=()=>r({info:{StoreID:id},menu:{dominosAPIResponse:menu}}));}}}});
  try{
-  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'\x1b[D');
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\x1b[D');
   resolve();await tick();assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Your store/);
  }finally{cleanup(screen);}
 });

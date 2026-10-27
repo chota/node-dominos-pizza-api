@@ -49,7 +49,8 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
         if(page==='profile'){setPage('stores');setSelectedID(null);setSelectedStore(null);return;}
         if(page==='stores'){setSelectedID(null);setSelectedStore(null);setStep(0);setPage(method==='Delivery'?'address':'method');focusField(method==='Delivery'?'continue':'method');return;}
         if(page==='address'||page==='manual'){invalidate();setPage('method');focusField('method');return;}
-        if(page==='method'||page==='location'){setPage('who');focusField('firstName');return;}
+        if(page==='location'||page==='after-location'){setPage('method');focusField('method');return;}
+        if(page==='method'){setPage('who');focusField('firstName');return;}
     };
     const run=async(task,apply)=>{
         if(busy)return;
@@ -64,11 +65,11 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
         const signal=controller.current.signal;
         run(()=>api.locateAddress({signal}),address=>{
             const next={...latest.current};for(const key of ['street','city','region','postalCode'])if(typeof address[key]==='string')next[key]=address[key];
-            put(next);setAttempted(true);setLocationResolved(true);setPage('method');focusField('method');controller.current=null;
+            put(next);setAttempted(true);setLocationResolved(true);setPage('after-location');controller.current=null;
         });
     };
-    // A failed initial attempt also unlocks method selection and manual fallback.
-    useEffect(()=>{if(page==='location'&&!busy&&status&&controller.current){controller.current=null;setAttempted(true);setPage('method');focusField('method');}},[page,busy,status]);
+    // Route after the request has settled so carryout discovery can start a new request.
+    useEffect(()=>{if(page==='location'&&!busy&&status&&controller.current){controller.current=null;setAttempted(true);setLocationResolved(false);setPage('after-location');}},[page,busy,status]);
     const beginSearch=serviceMethod=>{
         if(serviceMethod==='Carryout'&&!latest.current.postalCode?.trim()&&!latest.current.city?.trim()){
             setStep(0);setPage('manual');focusField('city');return;
@@ -88,10 +89,17 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
         if(chars(latest.current.additionalInstructions).length>EXTRA_LIMIT){focusField('additionalInstructions');setStatus(`Keep extra instructions within ${EXTRA_LIMIT} characters.`);return;}
         beginSearch('Delivery');
     };
+    const routeMethod=serviceMethod=>{
+        if(serviceMethod==='Carryout'){
+            if(!locationResolved){setPage('manual');focusField('city');}
+            else beginSearch('Carryout');
+        }else{setPage('address');focusField(completeAddress()?'continue':'street');}
+    };
+    useEffect(()=>{if(page==='after-location'&&!busy&&method)routeMethod(method);},[page,busy,method,locationResolved]);
     const acceptMethod=()=>{
         setMethod(methodChoice);invalidate();setStatus('');
-        if(methodChoice==='Carryout'){if(!locationResolved){setPage('manual');focusField('city');}else beginSearch('Carryout');}
-        else{setPage('address');focusField(completeAddress()?'continue':'street');}
+        if(!attempted){setPage('location');focusField('location');}
+        else routeMethod(methodChoice);
     };
     const chooseStore=()=>{
         const store=stores[storeIndex];if(!store||!method)return;
@@ -109,7 +117,7 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
         if(busy){if(input==='q')exit();return;}
         if(page==='location'){if(key.return||input===' ')useLocation();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;}
         if(page==='method'){
-            if(key.rightArrow||input===' '||key.upArrow||key.downArrow)setMethodChoice(old=>old==='Carryout'?'Delivery':'Carryout');
+            if(key.upArrow)setMethodChoice('Carryout');else if(key.downArrow)setMethodChoice('Delivery');
             else if(input==='c')setMethodChoice('Carryout');else if(input==='d')setMethodChoice('Delivery');
             else if(key.return)acceptMethod();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;
         }
@@ -135,7 +143,7 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
             if(key.ctrl&&input==='u'){change('');return;}
             if(key.return||key.tab){
                 put({...latest.current,[focus]:(latest.current[focus]||'').trim()});
-                if(page==='who'&&focus==='email'&&!key.shift){setPage(attempted?'method':'location');focusField(attempted?'method':'location');}
+                if(page==='who'&&focus==='email'&&!key.shift){setPage('method');focusField('method');}
                 else move(key.shift?-1:1);return;
             }
             if(key.upArrow){move(-1);return;}if(key.downArrow){move(1);return;}
@@ -146,7 +154,7 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
         if(page==='who'||page==='address'||page==='manual'){
             if(key.upArrow){move(-1);return;}if(key.downArrow){move(1);return;}
             if(key.return||input==='n'){
-                if(page==='address')continueAddress();else if(page==='manual')beginSearch('Carryout');else{setPage(attempted?'method':'location');focusField(attempted?'method':'location');}
+                if(page==='address')continueAddress();else if(page==='manual')beginSearch('Carryout');else{setPage('method');focusField('method');}
             }return;
         }
         if(page==='stores'){
@@ -170,7 +178,7 @@ export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice=
     let heading='Who…?',body=null;
     if(page==='who')body=h(Box,{flexDirection:'column'},inputRow(['firstName','lastName']),inputRow(['phone']),inputRow(['email']));
     else if(page==='location'){heading='Where…?';body=h(Text,{color:palette.red,bold:true},busy?'…':'› 📍 Use my location →  Enter');}
-    else if(page==='method'){heading='Carryout or delivery?';body=optionRow('method','',[['Carryout','🥡 Carryout'],['Delivery','🛵 Delivery']],methodChoice);}
+    else if(page==='method'){heading='Carryout or delivery?';body=h(Box,{flexDirection:'column'},...['Carryout','Delivery'].map(choice=>h(Text,{key:choice,color:methodChoice===choice?palette.red:palette.text,bold:methodChoice===choice},`${methodChoice===choice?'›':' '} ${choice==='Carryout'?'🥡':'🛵'} ${choice}`))); }
     else if(page==='manual'){heading='Near…?';body=h(Box,{flexDirection:'column'},inputRow(['city','region']),inputRow(['postalCode']));}
     else if(page==='address'){
         heading='Where…?';

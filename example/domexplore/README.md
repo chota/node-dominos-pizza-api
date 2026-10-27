@@ -24,8 +24,8 @@ The root dependencies supply the real Customer, Address, NearbyStores and Store 
 ## Learning flow
 
 1. **Who…?** First Name is focused on launch. Return advances through Family Name, Phone and Email.
-2. **Use my location:** Enter attempts native location and reverse-geocoding. No address fields appear beforehand. This action disappears after the attempt and does not reappear when going back within the session. Success is silent; failures are displayed.
-3. **Carryout or delivery?** Right/Space changes the highlighted choice; Enter commits it (`c`/`d` also changes the highlight). No service method or store is assumed from history.
+2. **Carryout or delivery?** Two vertical rows appear before any location or address screen. Up selects Carryout; Down selects Delivery; Enter commits the highlighted choice (`c`/`d` also changes the highlight). Left goes Back and Right does not change the choice. No service method or store is assumed from history.
+3. **Use my location:** Enter attempts native location and reverse-geocoding after the service choice. No address fields appear beforehand. This action disappears after the attempt and does not reappear when going back within the session. Success is silent; failures are displayed. The selected service determines whether discovery starts or the delivery-address form opens.
 4. **Carryout:** immediately search nearby open online carryout stores. Delivery address, apartment and handoff controls are skipped. If location failed, review/enter city, region and postal code before searching, including when cached values exist.
 5. **Delivery:** refine Street, City, Region and Postal Code. A blank line separates address fields from the compact delivery controls:
    - Home: House or Apartment. Apartment requires an apartment number.
