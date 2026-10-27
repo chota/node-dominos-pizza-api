@@ -1,215 +1,219 @@
-import React, {useEffect,useState,useRef} from 'react';
+import React,{useState,useRef,useEffect} from 'react';
 import {Box,useInput,useApp,useStdout} from 'ink';
-import {Customer,Address,NearbyStores} from '../../index.js';
-import {loadMenu} from './model.js';
+import {Customer,Address,NearbyStores,Store} from '../../index.js';
 import {Explorer} from './ui.js';
 import {Text,palette} from './style.js';
 import {locateAddress} from './location.js';
 import {configWithValues} from './config.js';
-const emptyConfig=Object.freeze({});
-const h=React.createElement;
-const fields=[['firstName','First name'],['lastName','Family name'],['phone','Phone'],['email','Email'],['street','Street'],['city','City'],['region','State / region'],['postalCode','Postal code'],['residenceType','House or apartment?'],['unitNumber','Apartment number'],['deliveryInstructions','Delivery instructions']];
+import {deliveryPreferences,composeInstructions,eligibleStores,handoffs,checks,EXTRA_LIMIT,chars} from './delivery.js';
+const h=React.createElement,empty=Object.freeze({});
+const contact=['firstName','lastName','phone','email'];
+const labels={firstName:'First name',lastName:'Family name',phone:'Phone',email:'Email',street:'Street',city:'City',region:'State / region',postalCode:'Postal code',unitNumber:'Apartment number',additionalInstructions:'Extra'};
 const steps=['Customer/address','Store','Menu','Items','Local Order','Validate','Price','Payment','Place','Track'];
-const headings=['Who…?','Where from…?','What sounds good…?','Add an item','Review your order','Validate your order','Price your order','How will you pay…?','Place your order','Follow your order'];
-const lessons=[
-    'Customer + Address · Created locally. Nothing is sent yet.',
-    'NearbyStores · Find a store open for online delivery.',
-    'Menu · Choose a product, then its orderable variant.',
-    'Item · A variant code, quantity, and your chosen options.',
-    'Order · Contact details and items, held in one local draft.',
-    'Validate · Send the draft and retain the returned order identity.',
-    'Price · Obtain fresh totals. Edit items to repeat the basket loop.',
-    'Payment · Attach payment after reviewing the latest price.',
-    'Place · Submit once, then inspect the placement result.',
-    'Tracking · Retrieve progress separately from the order basket.'
-];
+const lessons=['','','','Item · A variant code, quantity and options.','Order · One local draft, holding contact details and items.','Validate · Send the draft and retain returned order identity.','Price · Get fresh totals; edit items and repeat the loop.','Payment · Attach after reviewing the latest price.','Place · Submit once and inspect the result.','Tracking · Retrieve progress separately from the basket.'];
 export function customerFrom(values){
-    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address({...Object.fromEntries(fields.slice(4).filter(([key])=>key!=='residenceType').map(([key])=>[key,values[key]||''])),unitType:values.residenceType==='Apartment'?'APT':''})});
+    return new Customer({firstName:values.firstName||'',lastName:values.lastName||'',phone:values.phone||'',email:values.email||'',address:new Address({
+        ...Object.fromEntries(['street','city','region','postalCode','unitNumber'].map(key=>[key,values[key]||''])),
+        unitType:values.residenceType==='Apartment'?'APT':'',deliveryInstructions:composeInstructions(values)
+    })});
 }
-export function LearningApp({initialConfig=emptyConfig,onPersist=()=>{},initialNotice='',services={NearbyStores,loadMenu,locateAddress}}){
-    const initialValues={...initialConfig.customer,...initialConfig.address};
-    const [step,setStep]=useState(0),[part,setPart]=useState('who'),[values,setValues]=useState(initialValues),[field,setField]=useState(0);
-    const [editing,setEditing]=useState(true),[replace,setReplace]=useState(true),[residenceChoice,setResidenceChoice]=useState(initialValues.residenceType||'House');
-    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false),[locationAttempted,setLocationAttempted]=useState(false);
-    const [stores,setStores]=useState(null),[storeIndex,setStoreIndex]=useState(-1),[storeID,setStoreID]=useState(null),[menu,setMenu]=useState(null);
-    const locationRequest=useRef(null),revisions=useRef({}),latest=useRef(initialValues),persist=useRef(onPersist);
+export function LearningApp({initialConfig=empty,onPersist=()=>{},initialNotice='',services={}}){
+    const api={NearbyStores,Store,locateAddress,...services};
+    const seed={...initialConfig.customer,...initialConfig.address,...deliveryPreferences(initialConfig.address)};
+    const [values,setValues]=useState(seed),[step,setStep]=useState(0),[page,setPage]=useState('who');
+    const [focus,setFocus]=useState('firstName'),[editing,setEditing]=useState(true),[replace,setReplace]=useState(true);
+    const [attempted,setAttempted]=useState(false),[locationResolved,setLocationResolved]=useState(false),[method,setMethod]=useState(null),[methodChoice,setMethodChoice]=useState('Carryout');
+    const [residenceChoice,setResidenceChoice]=useState(seed.residenceType||'House'),[handoffChoice,setHandoffChoice]=useState(seed.handoff||'hand');
+    const [stores,setStores]=useState([]),[storeIndex,setStoreIndex]=useState(-1),[selectedID,setSelectedID]=useState(null),[selectedStore,setSelectedStore]=useState(null),[inspect,setInspect]=useState(false);
+    const [status,setStatus]=useState(initialNotice),[busy,setBusy]=useState(false);
+    const latest=useRef(seed),persist=useRef(onPersist),generation=useRef(0),controller=useRef(null),mounted=useRef(true);
     latest.current=values;persist.current=onPersist;
     const {exit}=useApp(),{stdout}=useStdout();
     const [size,setSize]=useState({columns:stdout.columns||80,rows:stdout.rows||30});
-    const writeValues=(next)=>{
-        latest.current=next;setValues(next);
+    useEffect(()=>{const resize=()=>setSize({columns:stdout.columns||80,rows:stdout.rows||30});stdout.on?.('resize',resize);return()=>stdout.off?.('resize',resize);},[stdout]);
+    useEffect(()=>{const timer=setTimeout(()=>{try{persist.current(configWithValues(initialConfig,latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);return()=>clearTimeout(timer);},[values,initialConfig]);
+    useEffect(()=>()=>{mounted.current=false;generation.current++;controller.current?.abort();try{persist.current(configWithValues(initialConfig,latest.current));}catch{}},[initialConfig]);
+    const put=next=>{latest.current=next;setValues(next);};
+    const invalidate=()=>{generation.current++;setBusy(false);setStores([]);setSelectedID(null);setSelectedStore(null);};
+    const focusField=key=>{setFocus(key);setEditing(Boolean(labels[key]));setReplace(true);};
+    const change=value=>{let text=value.replace(/[\x00-\x1f\x7f]/g,'');if(focus==='additionalInstructions')text=chars(text).slice(0,EXTRA_LIMIT).join('');put({...latest.current,[focus]:text});setReplace(false);setStatus('');if(!contact.includes(focus))invalidate();};
+    const addressSequence=()=>['street','city','region','postalCode','residence',...(latest.current.residenceType==='Apartment'?['unitNumber']:[]),'handoff',...checks.map(([key])=>key),'additionalInstructions','continue'];
+    const sequence=()=>page==='who'?contact:page==='manual'?['city','region','postalCode','continue']:addressSequence();
+    const move=delta=>{const keys=sequence(),index=keys.indexOf(focus);focusField(keys[Math.max(0,Math.min(keys.length-1,index+delta))]);};
+    const completeAddress=()=>Boolean(latest.current.street?.trim()&&latest.current.postalCode?.trim());
+    const cancel=()=>{generation.current++;controller.current?.abort();controller.current=null;setBusy(false);setStatus('');};
+    const back=()=>{
+        cancel();
+        if(step>=3){if(step===3){setStep(2);setPage('menu');}else setStep(old=>old-1);return;}
+        if(step===2){setStep(1);setPage('profile');return;}
+        if(page==='profile'){setPage('stores');setSelectedID(null);setSelectedStore(null);return;}
+        if(page==='stores'){setSelectedID(null);setSelectedStore(null);setStep(0);setPage(method==='Delivery'?'address':'method');focusField(method==='Delivery'?'continue':'method');return;}
+        if(page==='address'||page==='manual'){invalidate();setPage('method');focusField('method');return;}
+        if(page==='method'||page==='location'){setPage('who');focusField('firstName');return;}
     };
-    const editValue=(value)=>{
-        const key=fields[field][0];revisions.current[key]=(revisions.current[key]||0)+1;
-        writeValues({...latest.current,[key]:value});setReplace(false);setStatus('');
-        if(field>=4){setStores(null);setStoreID(null);setMenu(null);}
+    const run=async(task,apply)=>{
+        if(busy)return;
+        const token=++generation.current;setBusy(true);setStatus('');
+        try{const result=await task();if(mounted.current&&token===generation.current)apply(result);}
+        catch(error){if(mounted.current&&token===generation.current)setStatus(error.message);}
+        finally{if(mounted.current&&token===generation.current)setBusy(false);}
     };
-    const focus=(index)=>{setField(index);setEditing(![8,11,12].includes(index));setReplace(true);};
-    const completeAddress=value=>Boolean(value.street?.trim()&&value.postalCode?.trim());
-    const addressFields=()=>locationAttempted?[12,4,5,6,7,8,...(latest.current.residenceType==='Apartment'?[9]:[]),10,11]:[12];
+    const useLocation=()=>{
+        if(busy)return;
+        controller.current=new AbortController();
+        const signal=controller.current.signal;
+        run(()=>api.locateAddress({signal}),address=>{
+            const next={...latest.current};for(const key of ['street','city','region','postalCode'])if(typeof address[key]==='string')next[key]=address[key];
+            put(next);setAttempted(true);setLocationResolved(true);setPage('method');focusField('method');controller.current=null;
+        });
+    };
+    // A failed initial attempt also unlocks method selection and manual fallback.
+    useEffect(()=>{if(page==='location'&&!busy&&status&&controller.current){controller.current=null;setAttempted(true);setPage('method');focusField('method');}},[page,busy,status]);
+    const beginSearch=serviceMethod=>{
+        if(serviceMethod==='Carryout'&&!latest.current.postalCode?.trim()&&!latest.current.city?.trim()){
+            setStep(0);setPage('manual');focusField('city');return;
+        }
+        setStep(1);setPage('stores');setStoreIndex(-1);setStores([]);setSelectedID(null);setSelectedStore(null);
+        run(()=>new api.NearbyStores(customerFrom(latest.current).address,serviceMethod),result=>{
+            if(!Array.isArray(result.stores))throw Error('Store lookup returned no store list.');
+            const choices=eligibleStores(result.stores,serviceMethod);setStores(choices);setStoreIndex(choices.length?0:-1);
+            if(!choices.length)setStatus(`No nearby stores are currently open for online ${serviceMethod.toLowerCase()}.`);
+        });
+    };
     const continueAddress=()=>{
-        if(!completeAddress(latest.current)){focus(4);setStatus('Enter your street and postal code.');return;}
-        if(!latest.current.residenceType){focus(8);return;}
-        if(latest.current.residenceType==='Apartment'&&!latest.current.unitNumber?.trim()){focus(9);setStatus('Enter an apartment number.');return;}
-        setStoreIndex(-1);setStep(1);setStatus('');
+        if(!completeAddress()){focusField('street');setStatus('Enter your street and postal code.');return;}
+        if(!latest.current.residenceType){focusField('residence');return;}
+        if(latest.current.residenceType==='Apartment'&&!latest.current.unitNumber?.trim()){focusField('unitNumber');setStatus('Enter an apartment number.');return;}
+        if(!handoffs[latest.current.handoff]){focusField('handoff');return;}
+        if(chars(latest.current.additionalInstructions).length>EXTRA_LIMIT){focusField('additionalInstructions');setStatus(`Keep extra instructions within ${EXTRA_LIMIT} characters.`);return;}
+        beginSearch('Delivery');
     };
-    const where=()=>{setPart('where');setLocationAttempted(false);focus(12);setStatus('');};
-    const previous=()=>{
-        setStatus('');
-        if(step===0&&part==='where'){setPart('who');focus(0);}
-        else if(step===1){setStep(0);setPart('where');focus(12);}
-        else setStep(old=>Math.max(0,old-1));
+    const acceptMethod=()=>{
+        setMethod(methodChoice);invalidate();setStatus('');
+        if(methodChoice==='Carryout'){if(!locationResolved){setPage('manual');focusField('city');}else beginSearch('Carryout');}
+        else{setPage('address');focusField(completeAddress()?'continue':'street');}
     };
-    const useLocation=async(force=false)=>{
-        if(locationRequest.current)return;
-        const controller=new AbortController();locationRequest.current=controller;
-        const before={...revisions.current};setStatus('');
-        try{
-            const address=await (services.locateAddress||locateAddress)({signal:controller.signal});
-            if(controller.signal.aborted)return;
-            const next={...latest.current};
-            for(const key of ['street','city','region','postalCode']){
-                if(typeof address[key]==='string'&&address[key]&&(revisions.current[key]||0)===(before[key]||0)&&(force||!next[key]))next[key]=address[key];
-            }
-            writeValues(next);setStores(null);setStoreID(null);setMenu(null);setLocationAttempted(true);
-            setStatus('');
-            const untouched=fields.slice(4).every(([key])=>(revisions.current[key]||0)===(before[key]||0));
-            if(untouched)focus(completeAddress(next)?11:4);
-        }catch(error){if(!controller.signal.aborted){setLocationAttempted(true);setStatus(error.message);focus(4);}}
-        finally{locationRequest.current=null;}
+    const chooseStore=()=>{
+        const store=stores[storeIndex];if(!store||!method)return;
+        const id=String(store.StoreID);setSelectedID(id);setSelectedStore(null);
+        run(()=>new api.Store(id),result=>{
+            if(!result?.info||String(result.info.StoreID)!==id)throw Error('The loaded store does not match the selected store.');
+            if(result.info.Status===-1)throw Error('The store profile request failed.');
+            setSelectedStore(result);setPage('profile');focusField('continue');
+        });
     };
-    useEffect(()=>{
-        const resize=()=>setSize({columns:stdout.columns||80,rows:stdout.rows||30});
-        stdout.on?.('resize',resize);return()=>stdout.off?.('resize',resize);
-    },[stdout]);
-    useEffect(()=>{
-        const timer=setTimeout(()=>{try{persist.current(configWithValues(initialConfig,latest.current));}catch(error){setStatus(`Could not save settings: ${error.message}`);}},150);
-        return()=>clearTimeout(timer);
-    },[values,initialConfig]);
-    useEffect(()=>()=>{
-        locationRequest.current?.abort();
-        try{persist.current(configWithValues(initialConfig,latest.current));}catch{}
-    },[initialConfig]);
-    useEffect(()=>{
-        if(step!==0||part!=='where'){locationRequest.current?.abort();}
-    },[step,part]);
-    const customer=customerFrom(values);
-    const eligible=(stores?.stores||[]).filter(s=>s.IsOnlineCapable&&s.IsDeliveryStore&&s.IsOpen&&s.ServiceIsOpen?.Delivery);
-    const request=async fn=>{setBusy(true);setStatus('Loading…');try{await fn();}catch(error){setStatus(error.message);}finally{setBusy(false);}};
+    const showMenu=()=>{if(!selectedStore||!selectedID||!method)return;setStep(2);setPage('menu');};
     useInput((input,key)=>{
-        if(step===0&&part==='where'&&key.ctrl&&input==='l'){void useLocation(true);return;}
-        if(key.leftArrow){if(!(step===2&&menu))previous();return;}
-        if(step===0&&part==='where'&&field===12&&(key.return||input===' ')){void useLocation(true);return;}
-        if(step===0&&part==='where'&&!locationAttempted){
-            if(key.backspace||key.delete)previous();
-            if(input==='q')exit();
-            return;
+        if(inspect||page==='menu')return;
+        if(key.leftArrow){back();return;}
+        if(busy){if(input==='q')exit();return;}
+        if(page==='location'){if(key.return||input===' ')useLocation();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;}
+        if(page==='method'){
+            if(key.rightArrow||input===' '||key.upArrow||key.downArrow)setMethodChoice(old=>old==='Carryout'?'Delivery':'Carryout');
+            else if(input==='c')setMethodChoice('Carryout');else if(input==='d')setMethodChoice('Delivery');
+            else if(key.return)acceptMethod();else if(input==='q')exit();else if(key.backspace||key.delete)back();return;
         }
-        if(step===0&&part==='where'&&field===8){
-            if(key.rightArrow||input===' '){setResidenceChoice(old=>old==='House'?'Apartment':'House');return;}
-            if(input==='h'){setResidenceChoice('House');return;}
-            if(input==='a'){setResidenceChoice('Apartment');return;}
-            if(key.tab&&key.shift){focus(7);return;}
-            if(key.return||key.tab){
-                const next={...latest.current,residenceType:residenceChoice,unitType:residenceChoice==='Apartment'?'APT':'',unitNumber:residenceChoice==='House'?'':latest.current.unitNumber||''};
-                revisions.current.residenceType=(revisions.current.residenceType||0)+1;
-                writeValues(next);setStores(null);setStoreID(null);setMenu(null);setStatus('');focus(residenceChoice==='Apartment'?9:10);return;
-            }
+        if(page==='address'&&focus==='residence'){
+            if(key.rightArrow||input===' ')setResidenceChoice(old=>old==='House'?'Apartment':'House');
+            else if(input==='h')setResidenceChoice('House');else if(input==='a')setResidenceChoice('Apartment');
+            else if(key.return||(key.tab&&!key.shift)){
+                put({...latest.current,residenceType:residenceChoice,unitType:residenceChoice==='Apartment'?'APT':'',unitNumber:residenceChoice==='House'?'':latest.current.unitNumber||''});invalidate();focusField(residenceChoice==='Apartment'?'unitNumber':'handoff');
+            }else if(key.upArrow||(key.tab&&key.shift))move(-1);else if(key.downArrow)move(1);return;
         }
-        if(step===0&&editing){
+        if(page==='address'&&focus==='handoff'){
+            if(key.rightArrow||input===' ')setHandoffChoice(old=>old==='hand'?'door':'hand');
+            else if(input==='h')setHandoffChoice('hand');else if(input==='l')setHandoffChoice('door');
+            else if(key.return||(key.tab&&!key.shift)){put({...latest.current,handoff:handoffChoice});invalidate();move(1);}
+            else if(key.upArrow||(key.tab&&key.shift))move(-1);else if(key.downArrow)move(1);return;
+        }
+        if(page==='address'&&checks.some(([flag])=>flag===focus)){
+            if(input===' '){put({...latest.current,[focus]:!latest.current[focus]});invalidate();}
+            else if(key.return||key.downArrow||key.tab&&!key.shift)move(1);else if(key.upArrow||key.tab&&key.shift)move(-1);return;
+        }
+        if(editing&&(page==='who'||page==='address'||page==='manual')){
             if(key.escape){setEditing(false);return;}
-            if(key.ctrl&&input==='u'){editValue('');return;}
-            const sequence=part==='who'?[0,1,2,3]:addressFields(),position=sequence.indexOf(field);
+            if(key.ctrl&&input==='u'){change('');return;}
             if(key.return||key.tab){
-                writeValues({...latest.current,[fields[field][0]]:(latest.current[fields[field][0]]||'').trim()});
-                if(key.shift&&key.tab){focus(sequence[Math.max(0,position-1)]);return;}
-                if(part==='who'&&field===3)where();
-                else focus(sequence[Math.min(sequence.length-1,position+1)]);
-                return;
+                put({...latest.current,[focus]:(latest.current[focus]||'').trim()});
+                if(page==='who'&&focus==='email'&&!key.shift){setPage(attempted?'method':'location');focusField(attempted?'method':'location');}
+                else move(key.shift?-1:1);return;
             }
-            if(key.upArrow){focus(sequence[Math.max(0,position-1)]);return;}
-            if(key.downArrow){focus(sequence[Math.min(sequence.length-1,position+1)]);return;}
-            if(key.backspace||key.delete){editValue((latest.current[fields[field][0]]||'').slice(0,-1));return;}
-            if(input&&!key.ctrl&&!key.meta)editValue((replace?'':latest.current[fields[field][0]]||'')+input.replace(/[\x00-\x1f\x7f]/g,''));
-            return;
+            if(key.upArrow){move(-1);return;}if(key.downArrow){move(1);return;}
+            if(key.backspace||key.delete){change(chars(latest.current[focus]).slice(0,-1).join(''));return;}
+            if(input&&!key.ctrl&&!key.meta)change((replace?'':latest.current[focus]||'')+input);return;
         }
-        if(step===2&&menu)return;
-        if(input==='q'){exit();return;}if(busy)return;
-        if(key.backspace||key.delete){previous();return;}
-        if((input==='n'||(key.return&&step===0))&&step===0){
-            if(part==='who')where();else if(field===8)return;else continueAddress();return;
+        if(input==='q'){exit();return;}if(key.backspace||key.delete){back();return;}
+        if(page==='who'||page==='address'||page==='manual'){
+            if(key.upArrow){move(-1);return;}if(key.downArrow){move(1);return;}
+            if(key.return||input==='n'){
+                if(page==='address')continueAddress();else if(page==='manual')beginSearch('Carryout');else{setPage(attempted?'method':'location');focusField(attempted?'method':'location');}
+            }return;
         }
-        if(input==='n'&&step===1&&!storeID){setStatus('Search and select a store before continuing.');return;}
-        if(input==='n'){setStep(old=>Math.min(9,old+1));setStatus('');return;}
-        if(step===0){
-            const sequence=part==='who'?[0,1,2,3]:addressFields(),position=sequence.indexOf(field);
-            if(key.upArrow)focus(sequence[Math.max(0,position-1)]);
-            if(key.downArrow)focus(sequence[Math.min(sequence.length-1,position+1)]);
+        if(page==='stores'){
+            if(key.upArrow)setStoreIndex(old=>Math.max(-1,old-1));if(key.downArrow)setStoreIndex(old=>Math.min(stores.length-1,old+1));
+            if(input==='s'||key.return&&storeIndex===-1)beginSearch(method);else if(key.return)chooseStore();return;
         }
-        if(step===1){
-            if(key.upArrow)setStoreIndex(old=>Math.max(-1,old-1));
-            if(key.downArrow)setStoreIndex(old=>Math.min(eligible.length-1,old+1));
-            if(input==='s'||(key.return&&storeIndex===-1)){
-                if(!customer.address.street||!customer.address.postalCode){setStatus('Enter your street and postal code first.');return;}
-                request(async()=>{const result=await new services.NearbyStores(customer.address);setStores(result);setStoreIndex(result.stores.some(s=>s.IsOnlineCapable&&s.IsDeliveryStore&&s.IsOpen&&s.ServiceIsOpen?.Delivery)?0:-1);setStatus('Choose a store with Enter.');});
-            }
-            if(key.return&&eligible[storeIndex]){setStoreID(String(eligible[storeIndex].StoreID));setMenu(null);setStep(2);setStatus('');}
+        if(page==='profile'){
+            if(input==='i')setInspect(true);else if(key.return||input==='n')showMenu();return;
         }
-        if(step===2&&input==='l'&&!storeID){setStatus('Go back and select a store first.');return;}
-        if(step===2&&input==='l')request(async()=>{setMenu(await services.loadMenu(storeID));setStatus('');});
+        if(input==='n'||key.return)setStep(old=>Math.min(9,old+1));
     });
-    const width=Math.max(16,Math.min(68,size.columns-4));
-    const height=Math.max(8,size.rows),contentHeight=Math.max(4,height-6);
-    const row=(indexes)=>h(Box,{key:indexes.join('-'),flexDirection:width>=44?'row':'column'},...indexes.map(i=>{
-        const [key,label]=fields[i],selected=field===i;
-        if(i===8)return h(Box,{key,flexDirection:'column'},h(Text,null,'House or apartment?'),h(Text,{color:selected?palette.red:palette.text},`${selected?'› ':''}${(selected?residenceChoice:values.residenceType)==='House'?'[House]':'House'}   ${(selected?residenceChoice:values.residenceType)==='Apartment'?'[Apartment]':'Apartment'}`));
-        return h(Box,{key,width:width>=44?`${100/indexes.length}%`:'100%'},
-            h(Text,{color:selected?palette.red:palette.text,wrap:'truncate'},`${selected?'›':' '} ${label}: ${editing&&selected?(values[key]||'')+'▏':values[key]||'________'}`));
+    const width=Math.max(16,Math.min(68,size.columns-4)),height=Math.max(8,size.rows),bodyHeight=Math.max(3,height-7);
+    const inputRow=keys=>h(Box,{key:keys.join('-'),flexDirection:width<44?'column':'row'},...keys.map(field=>{
+        const label=`${labels[field]}${field==='additionalInstructions'?` ${chars(values[field]).length}/${EXTRA_LIMIT}`:''}: `;
+        const available=Math.max(3,Math.floor(width/(width<44?1:keys.length))-label.length-4);
+        const text=chars(values[field]);
+        const displayed=text.length>available?(focus===field&&editing?'…'+text.slice(-available+1).join(''):text.slice(0,available-1).join('')+'…'):text.join('');
+        return h(Box,{key:field,width:width<44?'100%':`${100/keys.length}%`},h(Text,{color:focus===field?palette.red:palette.text,wrap:'truncate'},`${focus===field?'›':' '} ${label}${displayed}${focus===field&&editing?'▏':''}`));
     }));
-    let body;
-    if(step===0){
-        const rows=part==='who'?[{indexes:[0,1]},{indexes:[2]},{indexes:[3]}]:locationAttempted?[{indexes:[4]},{indexes:[5,6]},{indexes:[7]},{indexes:[8]},...(values.residenceType==='Apartment'?[{indexes:[9]}]:[]),{indexes:[10]}]:[];
-        const focused=field===11?rows.length-1:rows.findIndex(r=>r.indexes?.includes(field));
-        const capacity=Math.max(2,contentHeight-5);
-        const cost=r=>r.indexes?.includes(8)?2:width<44&&r.indexes?r.indexes.length:1;
-        let start=0;
-        while(start<focused&&rows.slice(start,focused+1).reduce((sum,r)=>sum+cost(r),0)>capacity)start++;
-        let used=0;
-        const visible=[];
-        for(const r of rows.slice(start)){if(used+cost(r)>capacity)break;visible.push(r);used+=cost(r);}
+    const optionRow=(id,label,choices,chosen)=>h(Text,{key:id,color:focus===id?palette.red:palette.text,wrap:'wrap'},`${focus===id?'›':' '} ${label}${choices.map(([value,name])=>`${chosen===value?'[':''}${name}${chosen===value?']':''}`).join('  /  ')}`);
+    let heading='Who…?',body=null;
+    if(page==='who')body=h(Box,{flexDirection:'column'},inputRow(['firstName','lastName']),inputRow(['phone']),inputRow(['email']));
+    else if(page==='location'){heading='Where…?';body=h(Text,{color:palette.red,bold:true},busy?'…':'› 📍 Use my location →  Enter');}
+    else if(page==='method'){heading='Carryout or delivery?';body=optionRow('method','',[['Carryout','🥡 Carryout'],['Delivery','🛵 Delivery']],methodChoice);}
+    else if(page==='manual'){heading='Near…?';body=h(Box,{flexDirection:'column'},inputRow(['city','region']),inputRow(['postalCode']));}
+    else if(page==='address'){
+        heading='Where…?';
+        const rows=[{id:'street',keys:['street']},{id:'city',keys:['city','region']},{id:'postalCode',keys:['postalCode']},{id:'space'},
+            {id:'residence'},...(values.residenceType==='Apartment'?[{id:'unitNumber',keys:['unitNumber']}]:[]),{id:'handoff'},{id:'checks'},{id:'additionalInstructions',keys:['additionalInstructions']}];
+        const index=focus==='continue'?rows.length-1:rows.findIndex(row=>row.id===focus||row.keys?.includes(focus)||row.id==='checks'&&checks.some(([key])=>key===focus));
+        const cost=row=>row.id==='checks'?(width<64?3:1):width<44&&row.keys?row.keys.length:1;
+        const capacity=Math.max(3,bodyHeight-2);let start=0;
+        while(start<index&&rows.slice(start,index+1).reduce((sum,row)=>sum+cost(row),0)>capacity)start++;
+        let used=0;const visible=[];for(const row of rows.slice(start)){if(used+cost(row)>capacity)break;visible.push(row);used+=cost(row);}
+        body=h(Box,{flexDirection:'column'},...visible.map(row=>{
+            if(row.keys)return inputRow(row.keys);
+            if(row.id==='space')return h(Text,{key:'space'},' ');
+            if(row.id==='residence')return optionRow('residence','Home: ',[['House','House'],['Apartment','Apartment']],focus==='residence'?residenceChoice:values.residenceType);
+            if(row.id==='handoff')return optionRow('handoff','* ',Object.entries(handoffs),focus==='handoff'?handoffChoice:values.handoff);
+            return h(Box,{key:'checks',flexDirection:width<64?'column':'row',gap:1},...checks.map(([flag,label])=>h(Text,{key:flag,color:focus===flag?palette.red:palette.text},`${focus===flag?'›':' '}[${values[flag]?'x':' '}] ${label}`)));
+        }));
+    }else if(page==='stores'){
+        heading=`${method} stores`;
+        const capacity=Math.max(1,bodyHeight-3),start=Math.floor(Math.max(0,storeIndex)/capacity)*capacity;
         body=h(Box,{flexDirection:'column'},
-            part==='where'?h(Text,{color:field===12?palette.red:palette.text,bold:field===12},`${field===12?'› ':'  '}📍 Use my location${field===12?' →  Enter':' · Ctrl+L'}`):null,
-            ...visible.map(r=>r.heading?h(Text,{key:'where',bold:true,color:palette.red},r.heading):row(r.indexes)),
-            null);
-    }else if(step===1){
-        const capacity=Math.max(1,contentHeight-5),start=Math.floor(Math.max(0,storeIndex)/capacity)*capacity;
-        body=h(Box,{flexDirection:'column'},
-            h(Text,null,storeID?`Selected store ${storeID}`:'No store selected'),
-            h(Text,null,'Delivery coverage is confirmed by an address search.'),
-            h(Box,{marginTop:1,flexDirection:'column'},
-                ...eligible.slice(start,start+capacity).map((store,i)=>h(Text,{key:store.StoreID,color:start+i===storeIndex?palette.red:palette.text,wrap:'truncate'},`${start+i===storeIndex?'›':' '} 🏪 ${store.StoreID} · ${store.AddressDescription.replace(/\n/g,', ')}`)),
-                stores&&!eligible.length?h(Text,null,'No nearby stores are open for online delivery.'):null),
-            h(Box,{marginTop:1},h(Text,{color:palette.red,bold:storeIndex===-1},`${storeIndex===-1?'›':' '} Find delivery stores →${storeIndex===-1?'  Enter':'  s'}`)));
-    }else if(step===2){
-        body=menu?h(Explorer,{menu,storeID,embedded:true,height:contentHeight,onBack:()=>setStep(1),onNext:()=>setStep(3)}):h(Box,{flexDirection:'column'},h(Text,null,storeID?`Browse the live menu from store ${storeID}.`:'Select a store before loading its menu.'),storeID?h(Box,{marginTop:1},h(Text,{color:palette.red},'l  Load menu →')):null);
+            ...stores.slice(start,start+capacity).map((store,i)=>h(Text,{key:store.StoreID,color:start+i===storeIndex?palette.red:palette.text,wrap:'truncate'},`${start+i===storeIndex?'›':' '} 🏪 ${store.StoreID} · ${(store.AddressDescription||'').replace(/\n/g,', ')}`)),
+            h(Box,{marginTop:1},h(Text,{color:storeIndex===-1?palette.red:palette.text},`${storeIndex===-1?'›':' '} Find ${method?.toLowerCase()} stores → Enter`)));
+    }else if(page==='profile'){
+        heading='Your store';const info=selectedStore?.info||{};
+        body=inspect?h(Explorer,{menu:info,embedded:true,height:bodyHeight,onBack:()=>setInspect(false),onNext:()=>{setInspect(false);showMenu();}}):h(Box,{flexDirection:'column'},
+            h(Text,{bold:true},`🏪 ${info.StoreName||`Domino’s ${selectedID}`} · ${method}`),
+            h(Text,null,info.AddressDescription||[info.StreetName,info.City,info.Region,info.PostalCode].filter(Boolean).join(', ')),
+            info.Phone?h(Text,null,info.Phone):null,
+            h(Text,null,`${info.IsOpen===true?'Open':info.IsOpen===false?'Closed':'Hours'} · ${info.ServiceHoursDescription?.[method]||info.HoursDescription||''}`),
+            info.EstimatedWaitMinutes?h(Text,null,`Estimated wait: ${info.EstimatedWaitMinutes}`):null,
+            h(Box,{marginTop:1},h(Text,null,`store.info · ${Object.keys(info).length} fields · i inspect`)));
+    }else if(page==='menu'&&step===2){
+        heading='What sounds good…?';body=h(Explorer,{menu:selectedStore.menu.dominosAPIResponse,storeID:selectedID,embedded:true,height:bodyHeight,onBack:()=>{setStep(1);setPage('profile');},onNext:()=>{setStep(3);setPage('lesson');}});
     }else{
-        const icons=['','','','🍕','🧾','','','💳','🍕','🛵'];
-        body=h(Box,{flexDirection:'column'},
-            icons[step]?h(Text,null,icons[step]):null,
-            step>=3&&step<=6?h(Text,null,'Items → Local Order → Validate → Price → Items'):null,
-            step===4&&initialConfig.lastOrder?h(Text,null,`Last order: ${initialConfig.lastOrder.orderID||'—'} · Store ${initialConfig.lastOrder.storeID||'—'} · ${initialConfig.lastOrder.products?.length||0} items`):null,
+        heading=steps[step];body=h(Box,{flexDirection:'column'},h(Text,null,lessons[step]),step>=3&&step<=6?h(Text,null,'Items → Local Order → Validate → Price → Items'):null,
+            step===4&&initialConfig.lastOrder?h(Text,null,`Last order: ${initialConfig.lastOrder.orderID||'—'} · Store ${initialConfig.lastOrder.storeID||'—'}`):null,
             h(Box,{marginTop:1},h(Text,null,'Learning step · execution will be connected as we go.')));
     }
+    const primary=busy?'':page==='location'?'':editing||['residence','handoff',...checks.map(([key])=>key)].includes(focus)?'Enter  Next →':page==='profile'?'› Continue →  Enter':page==='address'||page==='manual'?`${focus==='continue'?'› ':''}Continue →  Enter`:page==='method'?'Enter  Choose':page==='stores'?'Enter  Select':step<9?'n  Continue →':'q  Done';
     return h(Box,{flexDirection:'column',height,width:size.columns,backgroundColor:palette.background,alignItems:'center'},
-        h(Box,{width,flexDirection:'column',height:2,flexShrink:0},
-            h(Text,{bold:true},'🍕 domexplore'),
-            h(Text,null,`${step+1} of 10 · ${steps[step]}${step===0?(part==='who'?' · Who':' · Where'):''}`)),
-        h(Box,{width,flexDirection:'column',height:contentHeight,justifyContent:step===2?'flex-start':'center',overflow:'hidden'},
-            h(Text,{bold:true,color:palette.red},step===0&&part==='where'?'Where…?':headings[step]),
-            h(Box,{marginTop:1,flexDirection:'column'},body)),
-        h(Box,{width,flexDirection:'column',height:4,flexShrink:0},
-            h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||(step===0?'Saved locally in ~/.domexplore.conf':lessons[step])),
-            h(Box,{marginTop:1,justifyContent:'space-between'},
-                h(Text,null,step||part==='where'?'←  Back':'Ctrl+C  Quit'),
-                h(Text,{color:palette.red,bold:true},step===0&&part==='where'&&field===12?'':step===0&&(editing||field===8)?'Enter  Next →':step===0?`${field===11?'› ':''}Continue →  Enter` :step<9?'n  Continue →':'q  Done'))));
+        h(Box,{width,height:2,flexShrink:0,flexDirection:'column'},h(Text,{bold:true},'🍕 domexplore'),h(Text,null,`${step+1} of 10 · ${steps[step]}${method?` · ${method}`:''}`)),
+        h(Box,{width,height:bodyHeight,justifyContent:page==='menu'||inspect?'flex-start':'center',flexDirection:'column',overflow:'hidden'},h(Text,{bold:true,color:palette.red},heading),h(Box,{marginTop:1,flexDirection:'column'},body)),
+        h(Box,{width,height:5,flexShrink:0,flexDirection:'column'},h(Text,{color:status?palette.red:palette.text,wrap:'truncate'},status||''),
+            h(Box,{marginTop:1,justifyContent:'space-between'},h(Text,null,page==='who'?'Ctrl+C  Quit':'←  Back'),h(Text,{color:palette.red,bold:true},primary))));
 }

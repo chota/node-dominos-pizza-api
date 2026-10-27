@@ -19,23 +19,33 @@ npm link
 domexplore
 ```
 
-The root dependencies supply the real Customer, Address and NearbyStores classes. Ink/React dependencies remain isolated in this example.
+The root dependencies supply the real Customer, Address, NearbyStores and Store classes. Ink/React dependencies remain isolated in this example.
 
 ## Learning flow
 
-- **Who…?** opens with First Name focused. Type immediately; Return accepts and focuses Family Name, Phone, then Email. Accepting Email opens **Where…?**, a separate screen within Customer/address.
-- **Where…?** initially selects **Use my location**. Enter starts location and reverse-geocoding. Address fields, including cached fields, remain hidden until the attempt finishes. Afterward, you can edit Street, City, State/region, and Postal Code. The address form also asks House or Apartment (Right/Space switches the choice; Enter accepts). Apartment reveals a required apartment-number field. Delivery instructions are always available. Enter after instructions selects Continue; Enter on Continue advances to Store once the address and residence details are complete. Arrows move between fields; Tab also advances, Shift+Tab goes back. Existing cached text is replaced by the first character typed after focusing it; Ctrl+U clears the field. Escape leaves typing mode for navigation. Left goes back even while a field is active; Backspace deletes text while editing and goes back in navigation mode. Up from Continue returns to the fields for editing.
-- **Location:** location is requested only when you activate Use my location with Enter (or Ctrl+L). Cached addresses do not bypass that first attempt. Allow **domexplore Location** in the macOS prompt. Ctrl+L refreshes the suggestion. A successful attempt reveals the address and focuses Continue; Up returns to the fields. Location success is silent; only errors are reported. A late result never overwrites a field edited while the request was running or steals focus from that edit. Leaving the address screen cancels the request. Manual entry remains available if access is denied or the request fails.
-- **Store:** Find delivery stores is selected initially; Enter searches with the address (`s` remains a shortcut). After the search, the first eligible store is selected. Up/down moves between stores and the search action. Only online-capable delivery stores with both store and delivery service open can be selected. Arrows select, Enter chooses. No store is assumed from history.
-- **Menu:** `l` loads the selected store’s live menu. Arrows select, Enter/right opens, left goes back, `/` filters, `h` returns to the root, and `n` continues to Items. `↗` rows follow product/variant references.
-- Items through Track currently explain the process; their execution is **not connected yet**. This version does not validate, price, pay for, place, or track an order.
-- Ctrl+C exits at any time. In navigation mode, `q` also quits. While typing, letters such as `q` and `n` remain ordinary text.
+1. **Who…?** First Name is focused on launch. Return advances through Family Name, Phone and Email.
+2. **Use my location:** Enter attempts native location and reverse-geocoding. No address fields appear beforehand. This action disappears after the attempt and does not reappear when going back within the session. Success is silent; failures are displayed.
+3. **Carryout or delivery?** Right/Space changes the highlighted choice; Enter commits it (`c`/`d` also changes the highlight). No service method or store is assumed from history.
+4. **Carryout:** immediately search nearby open online carryout stores. Delivery address, apartment and handoff controls are skipped. If location failed, review/enter city, region and postal code before searching, including when cached values exist.
+5. **Delivery:** refine Street, City, Region and Postal Code. A blank line separates address fields from the compact delivery controls:
+   - Home: House or Apartment. Apartment requires an apartment number.
+   - Mandatory handoff: Hand it to me or Leave at door. Right/Space changes the highlighted choice; Enter accepts.
+   - Don't Knock, Don't Ring Doorbell, Call upon arrival: Space toggles the focused checkbox; Enter/Tab accepts and moves on. Enter never silently enables an unchecked option.
+   - Extra instructions: a single-line input with a visible 120-character counter and bound. This is a local UI limit, not a verified Domino’s API limit. Longer legacy cached text is preserved until edited and must fit before continuing.
+   - These controls compose the wire `Address.DeliveryInstructions` string. UI-only choices do not become extra wire fields.
+6. **Store selection:** search results are filtered for the chosen service. Delivery shows stores identified as serving the refined address. Arrows highlight; Enter explicitly chooses a single store. Up can reach the search action to repeat the lookup.
+7. **Your store:** only after both service method and store are chosen, construct the package’s `Store(storeID)`. This fetches its profile and menu. Display `store.info`; `i` browses every profile field. Enter continues to the already-loaded menu. No separate menu fetch is needed.
+8. **Menu:** arrows select, Enter/right opens, left goes back, `/` filters, `h` returns to the root, and `n` continues to Items. `↗` rows follow product/variant references.
+
+Items through Track currently explain the process; their execution is **not connected yet**. This version does not validate, price, pay for, place, or track an order.
+
+Arrows navigate fields; Return/Tab accepts and advances. The first typed character replaces existing focused text. Ctrl+U clears a field. Left goes back; Backspace deletes while typing and goes back outside text entry. Escape leaves typing mode. Ctrl+C exits at any time; outside text entry, `q` also exits. Going back cancels/invalidates pending requests so a late response cannot restore an old store selection.
 
 ## Local cache
 
 `~/.domexplore.conf` is JSON, created atomically with owner-only read/write permissions (`0600`). Contact/address edits are saved shortly after typing and flushed on normal exit. On launch, values are restored and First Name is focused. A malformed config is reported rather than overwritten.
 
-The schema has `version`, `customer`, `address`, and `lastOrder`. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials, passwords, and tokens are excluded. A cached last order is shown at Local Order, but never auto-submitted and never used to auto-select a store. Since placement is not connected yet, a new installation has `lastOrder: null`.
+The schema has `version`, `customer`, `address`, and `lastOrder`. Address data includes the handoff choice, three checkbox booleans, extra text, and the composed delivery-instructions string. Last-order history retains an order ID, store ID, service method, recorded time, total, and product summaries; payment credentials, passwords, and tokens are excluded. A cached last order is shown at Local Order, but never auto-submitted and never used to auto-select a store. Since placement is not connected yet, a new installation has `lastOrder: null`.
 
 ## Native location helper
 
@@ -57,4 +67,4 @@ Interaction is keyboard-only. There is no advanced mode, hidden gesture, mouse r
 npm test
 ```
 
-Offline checks cover menu links and loading failures; autofocus and Return progression; location/typing races; config round-trips, permissions and credential exclusion; restored data; and navigation through Store and Menu into Items.
+Offline checks cover both service branches, eligibility filtering, explicit store selection, Store/profile identity, late-response handling, required handoff, compact instruction composition and bounds, config persistence, and menu navigation. Live read-only discovery and Store construction were also verified using the repository’s public example address; no user location was transmitted in that check.

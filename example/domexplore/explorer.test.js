@@ -32,116 +32,106 @@ test('keyboard opens products, follows a variant, and returns home',async()=>{
 });
 
 import {LearningApp,customerFrom} from './learning.js';
+import {eligibleStores,composeInstructions,EXTRA_LIMIT} from './delivery.js';
 const address={street:'123 Example St',city:'Example',region:'IL',postalCode:'12345'};
-async function enter(screen,value){screen.stdin.write(value);await tick();screen.stdin.write('\r');await tick();}
+const open={IsOnlineCapable:true,IsOpen:true,ServiceIsOpen:{Carryout:true,Delivery:true},AddressDescription:'Test address'};
+const candidates=[{...open,StoreID:'1111',IsDeliveryStore:false,MinDistance:1},{...open,StoreID:'2222',IsDeliveryStore:true,MinDistance:2},{...open,StoreID:'3333',IsDeliveryStore:true,IsOpen:false,MinDistance:0}];
+function harness(extra={}){
+ const calls={location:0,search:[],profile:[],saved:[]};
+ const services={locateAddress:async()=>{calls.location++;return address;},NearbyStores:class{constructor(a,method){calls.search.push({address:a,method});this.stores=candidates;}},Store:class{constructor(id){calls.profile.push(id);return {info:{StoreID:id,StoreName:'Selected store',AddressDescription:'Test address',Phone:'555-0100',IsOpen:true,HoursDescription:'Test hours',AcceptablePaymentTypes:['Cash']},menu:{dominosAPIResponse:menu,menu:{products:menu.Products,variants:menu.Variants}}};}},...extra.services};
+ const screen=render(React.createElement(LearningApp,{initialConfig:extra.initialConfig,onPersist:config=>calls.saved.push(config),services}));
+ return {screen,calls};
+}
+async function key(screen,text){screen.stdin.write(text);await tick();}
+async function enter(screen,value){await key(screen,value);await key(screen,'\r');}
 async function contact(screen){for(const value of ['Alex','Example','3145550123','alex@example.com'])await enter(screen,value);}
-async function attemptLocation(screen){assert.match(screen.lastFrame(),/› 📍 Use my location →  Enter/);assert.doesNotMatch(screen.lastFrame(),/Street:/);screen.stdin.write('\r');await tick();}
-test('autofocus, Return progression, separate address page, and persistence',async()=>{
- const writes=[];let requests=0;
- const screen=render(React.createElement(LearningApp,{onPersist:config=>writes.push(config),services:{locateAddress:async()=>{requests++;return address;}}}));
- try{
-  await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Enter next/);assert.doesNotMatch(screen.lastFrame(),/Street:/);
-  await contact(screen);await tick();
-  assert.match(screen.lastFrame(),/Where…\?/);assert.doesNotMatch(screen.lastFrame(),/First name:/);
-  assert.equal(requests,0);await attemptLocation(screen);
-  assert.match(screen.lastFrame(),/Street: 123 Example St/);assert.equal(requests,1);
-  assert.doesNotMatch(screen.lastFrame(),/Location filled|Finding your address|Finding location/);
-  assert.match(screen.lastFrame(),/› Continue →  Enter/);
-  screen.stdin.write('\x1b[A');await tick();assert.match(screen.lastFrame(),/› Delivery instructions:/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/› Continue →  Enter/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/› \[House\]   Apartment/);
-  screen.stdin.write('\x1b[C');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/Apartment number: ▏/);
-  await enter(screen,'4B');await enter(screen,'Leave with front desk');
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
-  screen.stdin.write('\x7f');await tick();assert.match(screen.lastFrame(),/Where…\?/);
-  screen.stdin.write('\x1b[D');await tick();assert.match(screen.lastFrame(),/Who…\?/);
-  assert.match(screen.lastFrame(),/First name: Alex/);
- }finally{screen.unmount();screen.cleanup();}
- assert.equal(writes.at(-1).customer.email,'alex@example.com');assert.equal(writes.at(-1).address.street,address.street);assert.equal(writes.at(-1).address.residenceType,'Apartment');assert.equal(writes.at(-1).address.unitNumber,'4B');assert.equal(writes.at(-1).address.deliveryInstructions,'Leave with front desk');
- const customer=customerFrom({...writes.at(-1).customer,...writes.at(-1).address});assert.equal(customer.address.unitType,'APT');assert.equal(customer.address.unitNumber,'4B');assert.equal(customer.address.residenceType,undefined);
+async function locate(screen){await contact(screen);assert.match(screen.lastFrame(),/Use my location/);assert.doesNotMatch(screen.lastFrame(),/Street:/);await key(screen,'\r');}
+function cleanup(screen){screen.unmount();screen.cleanup();}
+test('service-specific eligibility excludes closed stores and sorts nearby carryout stores',()=>{
+ assert.deepEqual(eligibleStores(candidates,'Carryout').map(s=>s.StoreID),['1111','2222']);
+ assert.deepEqual(eligibleStores(candidates,'Delivery').map(s=>s.StoreID),['2222']);
+ assert.deepEqual(eligibleStores(candidates,null),[]);
+ assert.deepEqual(eligibleStores([{...open,StoreID:'x',AllowCarryoutOrders:false}],'Carryout'),[]);
 });
-test('a late location result cannot overwrite an address the user is typing',async()=>{
- let resolve,requests=0;
- const screen=render(React.createElement(LearningApp,{services:{locateAddress:()=>++requests===1?Promise.resolve(address):new Promise(r=>resolve=r)}}));
+test('location is an explicit first action and disappears before service-method selection',async()=>{
+ const {screen,calls}=harness();
  try{
-  await tick();await contact(screen);await attemptLocation(screen);
-  for(let i=0;i<6;i++){screen.stdin.write('\x1b[A');await tick();}
-  screen.stdin.write('\x0c');await tick();
-  screen.stdin.write('My chosen address');await tick();resolve(address);await tick();
-  assert.match(screen.lastFrame(),/Street: My chosen address/);assert.match(screen.lastFrame(),/Postal code: 12345/);
- }finally{screen.unmount();screen.cleanup();}
+  await tick();assert.match(screen.lastFrame(),/First name: ▏/);assert.doesNotMatch(screen.lastFrame(),/Enter next/);
+  await contact(screen);assert.equal(calls.location,0);assert.match(screen.lastFrame(),/› 📍 Use my location/);
+  await key(screen,'\r');assert.equal(calls.location,1);assert.match(screen.lastFrame(),/Carryout or delivery/);
+  assert.doesNotMatch(screen.lastFrame(),/Use my location|Street:|Location filled/);assert.equal(calls.profile.length,0);
+ }finally{cleanup(screen);}
 });
-test('cached values restore without assuming a store; first typing replaces the focused value',async()=>{
- let locations=0;const writes=[];
- const initialConfig={customer:{firstName:'Remembered'},address:{...address,residenceType:'House'},lastOrder:{orderID:'old-order',storeID:'9999',products:[]}};
- const screen=render(React.createElement(LearningApp,{initialConfig,onPersist:config=>writes.push(config),services:{locateAddress:async()=>{locations++;return address;}}}));
+test('carryout skips address refinement, explicitly selects one store, and displays its Store object',async()=>{
+ const {screen,calls}=harness();
  try{
-  await tick();assert.match(screen.lastFrame(),/Remembered▏/);
-  screen.stdin.write('Alex');await tick();screen.stdin.write('\x7f');await tick();assert.match(screen.lastFrame(),/First name: Ale▏/);screen.stdin.write('x');await tick();screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();
-  assert.match(screen.lastFrame(),/Where…\?/);assert.equal(locations,0);
-  await attemptLocation(screen);assert.equal(locations,1);
-  screen.stdin.write('\x1b');await tick();screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/No store selected/);
- }finally{screen.unmount();screen.cleanup();}
- assert.equal(writes.at(-1).customer.firstName,'Alex');assert.equal(writes.at(-1).lastOrder.orderID,'old-order');
+  await tick();await locate(screen);await key(screen,'\r');
+  assert.equal(calls.search[0].method,'Carryout');assert.match(screen.lastFrame(),/Carryout stores/);assert.doesNotMatch(screen.lastFrame(),/Home:|Hand it to me/);
+  assert.equal(calls.profile.length,0);await key(screen,'\r');assert.deepEqual(calls.profile,['1111']);
+  assert.match(screen.lastFrame(),/Your store/);assert.match(screen.lastFrame(),/Selected store · Carryout/);assert.match(screen.lastFrame(),/555-0100/);
+  await key(screen,'i');assert.match(screen.lastFrame(),/AcceptablePaymentTypes/);await key(screen,'\x1b[D');
+  await key(screen,'\r');assert.match(screen.lastFrame(),/What sounds good/);assert.match(screen.lastFrame(),/Products/);
+  assert.equal(calls.profile.length,1);await key(screen,'n');assert.match(screen.lastFrame(),/4 of 10 · Items/);await key(screen,'\x1b[D');assert.match(screen.lastFrame(),/What sounds good/);
+ }finally{cleanup(screen);}
 });
-test('customer-first journey discovers a store, loads its menu, then continues to Items',async()=>{
- let loadedStore;
- const screen=render(React.createElement(LearningApp,{initialConfig:{address:{...address,residenceType:'House'}},services:{
-  NearbyStores:class {constructor(){this.stores=[{StoreID:'1234',IsOnlineCapable:true,IsDeliveryStore:true,IsOpen:true,ServiceIsOpen:{Delivery:true},AddressDescription:'Test store'}];}},
-  locateAddress:async()=>address,
-  loadMenu:async id=>{loadedStore=id;return menu;}
- }}));
+test('delivery builds compact handoff instructions, finds the serving store, and retains local preferences',async()=>{
+ const {screen,calls}=harness();
  try{
-  await tick();await contact(screen);await attemptLocation(screen);
-  screen.stdin.write('\r');await tick();
-  assert.match(screen.lastFrame(),/2 of 10 · Store/);
-  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/2 of 10/);
-  assert.match(screen.lastFrame(),/› Find delivery stores →  Enter/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/› 🏪 1234/);screen.stdin.write('\r');await tick();
-  screen.stdin.write('l');await tick();await tick();assert.match(screen.lastFrame(),/3 of 10 · Menu/);assert.equal(loadedStore,'1234');
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/menu \/ Products/);
-  screen.stdin.write('n');await tick();assert.match(screen.lastFrame(),/4 of 10 · Items/);
-  assert.match(screen.lastFrame(),/Items → Local Order → Validate → Price → Items/);
- }finally{screen.unmount();screen.cleanup();}
+  await tick();await locate(screen);await key(screen,'\x1b[C');await key(screen,'\r');
+  assert.match(screen.lastFrame(),/› Continue →  Enter/);assert.doesNotMatch(screen.lastFrame(),/Use my location/);
+  assert.match(screen.lastFrame(),/Postal code: 12345\n\s*\n/);assert.match(screen.lastFrame(),/Don't Knock/);
+  await key(screen,'\r');await key(screen,'\x1b[C');await key(screen,'\r');assert.match(screen.lastFrame(),/Apartment number: ▏/);
+  await enter(screen,'4B');await key(screen,'\x1b[C');await key(screen,'\r');
+  for(let i=0;i<3;i++){await key(screen,' ');await key(screen,'\r');}
+  await enter(screen,'Behind the side gate');await key(screen,'\r');
+  assert.equal(calls.search[0].method,'Delivery');assert.match(screen.lastFrame(),/2222/);assert.doesNotMatch(screen.lastFrame(),/1111/);
+  const a=calls.search[0].address;
+  assert.equal(a.unitType,'APT');assert.equal(a.unitNumber,'4B');
+  assert.equal(a.deliveryInstructions,"Leave at door; Don't Knock; Don't Ring Doorbell; Call upon arrival; Behind the side gate");
+  assert.equal(a.handoff,undefined);assert.equal(calls.profile.length,0);await key(screen,'\r');assert.deepEqual(calls.profile,['2222']);
+ }finally{cleanup(screen);}
+ const prefs=calls.saved.at(-1).address;assert.equal(prefs.handoff,'door');assert.equal(prefs.dontKnock,true);assert.equal(prefs.callUponArrival,true);assert.equal(prefs.additionalInstructions,'Behind the side gate');
 });
-test('location denial leaves manual address entry usable',async()=>{
- const screen=render(React.createElement(LearningApp,{services:{locateAddress:async()=>{throw Error('Location access denied.');}}}));
+test('handoff is mandatory even with a cached house address',async()=>{
+ const {screen,calls}=harness({initialConfig:{address:{...address,residenceType:'House'}}});
  try{
-  await tick();await contact(screen);await attemptLocation(screen);assert.match(screen.lastFrame(),/Location access denied/);
-  screen.stdin.write('123 Manual St');await tick();assert.match(screen.lastFrame(),/Street: 123 Manual St/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/City: ▏/);
- }finally{screen.unmount();screen.cleanup();}
+  await tick();await locate(screen);await key(screen,'d');await key(screen,'\r');await key(screen,'\r');
+  assert.match(screen.lastFrame(),/› \* \[Hand it to me\]/);assert.equal(calls.search.length,0);
+  await key(screen,'\r');for(let i=0;i<3;i++)await key(screen,'\r');
+  await key(screen,'\r');await key(screen,'\r');assert.equal(calls.search[0].method,'Delivery');
+  assert.equal(calls.search[0].address.deliveryInstructions,'Hand it to me');
+ }finally{cleanup(screen);}
 });
-test('an apartment number is required before continuing to store discovery',async()=>{
- const screen=render(React.createElement(LearningApp,{initialConfig:{address:{...address,residenceType:'Apartment'}},services:{locateAddress:async()=>address}}));
+test('extra instructions are bounded and legacy instructions are preserved on migration',async()=>{
+ const {screen,calls}=harness({initialConfig:{address:{...address,residenceType:'House',handoff:'hand',deliveryInstructions:'Old extra'}}});
  try{
-  await tick();await contact(screen);await attemptLocation(screen);assert.match(screen.lastFrame(),/› Continue →  Enter/);
-  screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/Enter an apartment number/);assert.match(screen.lastFrame(),/Apartment number: ▏/);
-  await enter(screen,'7');assert.doesNotMatch(screen.lastFrame(),/Enter an apartment number/);
-  screen.stdin.write('\r');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
- }finally{screen.unmount();screen.cleanup();}
+  await tick();await locate(screen);await key(screen,'d');await key(screen,'\r');await key(screen,'\x1b[A');
+  await key(screen,'x'.repeat(180));assert.match(screen.lastFrame(),/Extra 120\/120:/);
+ }finally{cleanup(screen);}
+ assert.equal(calls.saved.at(-1).address.additionalInstructions.length,EXTRA_LIMIT);
+ assert.equal(composeInstructions({handoff:'hand',deliveryInstructions:'Old extra'}),'Hand it to me; Old extra');
 });
-test('changing an apartment to a house clears the cached apartment number',async()=>{
- const writes=[];
- const screen=render(React.createElement(LearningApp,{initialConfig:{address:{...address,residenceType:'Apartment',unitType:'APT',unitNumber:'Old apt'}},onPersist:config=>writes.push(config),services:{locateAddress:async()=>address}}));
+test('denied location permits a manual carryout search without delivery details',async()=>{
+ const {screen,calls}=harness({services:{locateAddress:async()=>{throw Error('Location access denied.');}}});
  try{
-  await tick();await contact(screen);await attemptLocation(screen);
-  for(let i=0;i<3;i++){screen.stdin.write('\x1b[A');await tick();}
-  screen.stdin.write('h');await tick();screen.stdin.write('\r');await tick();
-  assert.doesNotMatch(screen.lastFrame(),/Apartment number:/);
-  screen.stdin.write('\r');await tick();screen.stdin.write('\r');await tick();assert.match(screen.lastFrame(),/2 of 10 · Store/);
- }finally{screen.unmount();screen.cleanup();}
- assert.equal(writes.at(-1).address.residenceType,'House');assert.equal(writes.at(-1).address.unitNumber,'');assert.equal(writes.at(-1).address.unitType,'');
+  await tick();await locate(screen);assert.match(screen.lastFrame(),/Location access denied/);
+  await key(screen,'\r');assert.match(screen.lastFrame(),/Near…/);assert.doesNotMatch(screen.lastFrame(),/Apartment|Don't Knock/);
+  await enter(screen,'Example');await enter(screen,'IL');await enter(screen,'12345');await key(screen,'\r');
+  assert.equal(calls.search[0].method,'Carryout');assert.equal(calls.search[0].address.postalCode,'12345');
+ }finally{cleanup(screen);}
 });
-test('Use my location owns Enter and hides cached fields until the request settles',async()=>{
- let calls=0,resolve;
- const screen=render(React.createElement(LearningApp,{initialConfig:{address},services:{locateAddress:()=>{calls++;return new Promise(r=>resolve=r);}}}));
+test('a mismatched Store response cannot advance to profile or menu',async()=>{
+ const {screen}=harness({services:{Store:class{constructor(){return {info:{StoreID:'wrong'}};}}}});
  try{
-  await tick();await contact(screen);assert.equal(calls,0);assert.match(screen.lastFrame(),/› 📍 Use my location →  Enter/);
-  assert.doesNotMatch(screen.lastFrame(),/Street:|House or apartment|Delivery instructions:|Continue →/);
-  screen.stdin.write('n');await tick();assert.equal(calls,0);assert.match(screen.lastFrame(),/Where…\?/);
-  screen.stdin.write('\r');await tick();screen.stdin.write('\r');await tick();assert.equal(calls,1);
-  assert.doesNotMatch(screen.lastFrame(),/Street:|House or apartment|Delivery instructions:/);
-  resolve(address);await tick();assert.match(screen.lastFrame(),/Street: 123 Example St/);assert.match(screen.lastFrame(),/› Continue →  Enter/);
- }finally{screen.unmount();screen.cleanup();}
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');assert.match(screen.lastFrame(),/does not match/);
+  assert.doesNotMatch(screen.lastFrame(),/Your store|What sounds good/);
+ }finally{cleanup(screen);}
+});
+test('back navigation discards a late Store result',async()=>{
+ let resolve;
+ const {screen}=harness({services:{Store:class{constructor(id){return new Promise(r=>resolve=()=>r({info:{StoreID:id},menu:{dominosAPIResponse:menu}}));}}}});
+ try{
+  await tick();await locate(screen);await key(screen,'\r');await key(screen,'\r');await key(screen,'\x1b[D');
+  resolve();await tick();assert.match(screen.lastFrame(),/Carryout or delivery/);assert.doesNotMatch(screen.lastFrame(),/Your store/);
+ }finally{cleanup(screen);}
 });
