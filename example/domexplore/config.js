@@ -2,6 +2,7 @@ import {homedir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {readFileSync,lstatSync,openSync,writeFileSync,fsyncSync,closeSync,renameSync,unlinkSync} from 'node:fs';
+import {deliveryPreferences,composeInstructions} from './delivery.js';
 export const configPath=join(homedir(),'.domexplore.conf');
 export const contactKeys=['firstName','lastName','phone','email'];
 export const addressKeys=['street','city','region','postalCode','unitType','unitNumber','deliveryInstructions','residenceType'];
@@ -25,7 +26,7 @@ export function orderSummary(order){
     };
 }
 export function cleanConfig(config={}){
-    return {version:1,customer:strings(config.customer,contactKeys),address:strings(config.address,addressKeys),lastOrder:orderSummary(config.lastOrder)};
+    return {version:1,customer:strings(config.customer,contactKeys),address:{...strings(config.address,addressKeys),...deliveryPreferences(config.address),deliveryInstructions:composeInstructions(config.address)},lastOrder:orderSummary(config.lastOrder)};
 }
 export function loadConfig(path=configPath){
     try{
@@ -51,5 +52,5 @@ export function saveConfig(config,path=configPath){
     }
 }
 export function configWithValues(previous,values){
-    return cleanConfig({...previous,customer:strings(values,contactKeys),address:strings(values,addressKeys)});
+    return cleanConfig({...previous,customer:strings(values,contactKeys),address:{...strings(values,addressKeys),...deliveryPreferences(values)}});
 }

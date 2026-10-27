@@ -21,3 +21,14 @@ test('config rejects symbolic links without modifying their target',()=>{
  try{writeFileSync(target,'untouched');symlinkSync(target,path);assert.throws(()=>saveConfig({},path),/symbolic/);assert.throws(()=>loadConfig(path),/symbolic/);assert.equal(readFileSync(target,'utf8'),'untouched');}
  finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('structured delivery choices survive cache round-trips without duplicating the composed text',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'domexplore-config-')),path=join(dir,'config');
+ try{
+  const config=configWithValues({}, {handoff:'door',dontKnock:true,dontRingDoorbell:false,callUponArrival:true,additionalInstructions:'Side entrance',residenceType:'Apartment',unitNumber:'4B'});
+  saveConfig(config,path);const loaded=loadConfig(path);saveConfig(loaded,path);
+  const again=loadConfig(path);
+  assert.equal(again.address.handoff,'door');assert.equal(again.address.dontRingDoorbell,false);
+  assert.equal(again.address.deliveryInstructions,"Leave at door; Don't Knock; Call upon arrival; Side entrance");
+  assert.equal(again.address.unitNumber,'4B');
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
